@@ -1,7 +1,7 @@
 {
   "name": "toubkal_mysql",
-  "version": "0.1",
-  "description": "MySQL pipelets for ReactiveSets/Toukbal",
+  "version": "0.1.1",
+  "description": "MySQL pipelets for ReactiveSets/toukbal",
   "main": "toubkal_mysql.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
