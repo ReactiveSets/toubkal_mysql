@@ -18,7 +18,7 @@ rs.mysql( 'test.users', 'root' )
 ;
 ```
 
-Where the "root" account is defined in configuration file ~/config.rs.json, e.g.
+Where the "root" account is defined in configuration file "~/config.rs.json", hiding credentials, e.g.
 
 ```javascript
 [
@@ -35,8 +35,28 @@ Where the "root" account is defined in configuration file ~/config.rs.json, e.g.
   }
 ]
 ```
+
 Where "mysql" object provides options for connecting to MySQL database. [All connection options are from "mysql"
-nmp module](https://www.npmjs.com/package/mysql#connection-options).
+npm module](https://www.npmjs.com/package/mysql#connection-options).
+
+## Install
+
+```bash
+$ npm install toubkal_mysql
+```
+
+## Documentation
+
+### mysql( table, user, options )
+
+Provides a Toubkal dataflow for MySQL "table", for user account "user".
+
+Optional parameter options have optional attributes:
+- configuration (String): filename, default is "~/config.rs.json"
+- mysql (Object): [connection options for "mysql" npm module](https://www.npmjs.com/package/mysql#connection-options), main options are:
+  - host (String): e.g. "localhost"
+  - user (String): e.g. "root"
+  - password (String): e.g. "therootpassword"
 
 ## Licence
 
