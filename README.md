@@ -6,15 +6,15 @@ Stability: Experimental, needs CI testing.
 
 ## Usage
 
-### Getting a dataflow from "users" table in the "test" database using the "root" account:
+Getting a dataflow from "users" table in the "test" database using the "root" account:
 
 ```javascript
 var rs = require( 'toubkal_mysql' );
 
 rs.mysql( 'test.users', 'root' )
   .trace( 'users' )              // displays users' from NYC (per filter bellow)
-  .filter( [ { city: 'NYC' } ] ) // select user where city = "NYC" (processed by mysql() pipelet)
-  .set() // Cache NYC users for downstream consumption
+  .filter( [ { city: 'NYC' } ] ) // i.e. SELECT users WHERE city = "NYC"
+  .set()                         // Cache NYC users for downstream consumption
 ;
 ```
 
