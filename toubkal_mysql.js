@@ -59,9 +59,12 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
       
       connection.mysql = extend( {}, this._options.mysql, connection.mysql );
       
-      de&&ug( this._get_name( '_add_value' ) + ', mysql:', connection.mysql );
-      
       var mysql_connection = mysql.createConnection( connection.mysql );
+      
+      // hide paswword, preventing downstream traces from disclosing it
+      connection.mysql.password = connection.mysql.password && '***';
+      
+      de&&ug( this._get_name( '_add_value' ) + ', mysql:', connection.mysql );
       
       // Try to connect immediately
       mysql_connection.connect( function( error ) {
@@ -151,7 +154,6 @@ RS.Pipelet.Compose( 'mysql', function( source, table, connection, options ) {
     .configuration( { filepath: options.configuration } )
     .filter( [ { id: 'toubkal_mysql#' + connection } ] )
     .mysql_connections( { mysql: options.mysql } )
-    .trace( 'mysql_connections' )
   ;
   
   return rs.mysql_read( table, connections );
