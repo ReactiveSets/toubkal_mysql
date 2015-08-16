@@ -107,7 +107,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
    
    Parameters:
    - table (String): mysql table name
-   - connection (Pipelet): mysql_connections() output
+   - connection (Pipelet): mysql_connections() output (will use the last added)
    - options (optional Object): optional attributes:
      - columns (Array of Strings): default is ['*']
 */
@@ -115,7 +115,7 @@ function MySQL_Read( table, connection, options ) {
   var that = this;
   
   connection.greedy()._on( "add", function( connections ) {
-    var connection = connections[ 0 ]
+    var connection = connections[ connections.length - 1 ]
       , mysql_connection = connection.mysql_connection
       , columns = options.columns
     ;
