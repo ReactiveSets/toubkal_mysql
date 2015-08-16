@@ -109,6 +109,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
    - table (String): mysql table name
    - connection (Pipelet): mysql_connections() output
    - options (optional Object): optional attributes:
+     - columns (Array of Strings): default is ['*']
 */
 function MySQL_Read( table, connection, options ) {
   var that = this;
@@ -116,9 +117,17 @@ function MySQL_Read( table, connection, options ) {
   connection.greedy()._on( "add", function( connections ) {
     var connection = connections[ 0 ]
       , mysql_connection = connection.mysql_connection
+      , columns = options.columns
     ;
     
-    mysql_connection.query( 'select * from ' + table, function( error, results, fields ) {
+    columns = columns
+      ? columns.map( mysql_connection.escapeId ).join( ', ' )
+      : '*'
+    ;
+    
+    table = mysql_connection.escapeId( table );
+    
+    mysql_connection.query( 'select ' + columns + ' from ' + table, function( error, results, fields ) {
       if ( error ) {
         log( 'Unable to read', table, ', error:', error );
         
@@ -146,6 +155,7 @@ Set.Build( 'mysql_read', MySQL_Read );
    - options (optional Object): optional attributes:
      - configuration (String): filename of configuration file, default is ~/config.rs.json
      - mysql (Object): default mysql connection options, see mysql_connections()
+     - columns (String or Array of Strings): default is '*'
 */
 require( 'toubkal/lib/server/file.js' ); // for configuration()
 
@@ -156,7 +166,7 @@ RS.Pipelet.Compose( 'mysql', function( source, table, connection, options ) {
     .mysql_connections( { mysql: options.mysql } )
   ;
   
-  return rs.mysql_read( table, connections );
+  return rs.mysql_read( table, connections, options );
 } );
 
 // toubkal_mysql.js

@@ -57,6 +57,7 @@ Optional parameter options have optional attributes:
   - host (String): e.g. "localhost"
   - user (String): e.g. "root"
   - password (String): e.g. "therootpassword"
+- columns (String or Array of Strings): default is '*'
 
 ## Licence
 
