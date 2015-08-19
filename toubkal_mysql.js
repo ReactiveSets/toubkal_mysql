@@ -237,6 +237,10 @@ function where_from_query( query, connection ) {
         .map( function( property ) {
           var value = or_term[ property ];
           
+          if ( property === 'flow' && value === 'error' ) {
+            return false;
+          }
+          
           switch ( toString.call( value ) ) {
             case '[object Number]':
             case '[object String]':
@@ -269,7 +273,7 @@ function where_from_query( query, connection ) {
   function not_empty( v ) { return !!v }
   
   function translate_expression( connection, property, expression ) {
-  //  return false; // work in progress, don't translate to SQL for now
+    return false; // work in progress, don't translate to SQL for now
     
     var i = 0, sql = '';
     
@@ -395,11 +399,45 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     return this;
   }, // _call_waiters()
   
+  /* ----------------------------------------------------------------------------------------------
+     _get_columns( values )
+     
+     Get columns from:
+       - if options.columns is set from options.key and options.columns
+       - otherwise from options.key and values
+     .
+     
+     Attributes flow and _v are ignored from options.key and values, but are accepted from
+     options.columns.
+  */
   _get_columns: function( values ) {
-    return this._options.columns || columns_from_values( values );
+    var options = this._options
+      , key = options.key.filter( function( p ) { return p !== 'flow' && p !== '_v'; } )
+      , columns = options.columns
+    ;
     
-    function columns_from_values( values ) {
-      var keys = {}, vl = values.length;
+    if ( columns ) {
+      // Add key attributes to columns if not present, they should!
+      
+      // Make a copy of columns to prevent alteration
+      columns = slice.call( columns );
+      
+      key.forEach( function( p ) {
+        if ( columns.indexOf( p ) === -1 ) columns.unshift( p );
+      } );
+      
+    } else {
+      // Find columns from key and values.
+      
+      var keys = key.map( function( p ) {
+        var a = {};
+        
+        a[ p ] = true;
+        
+        return a;
+      } );
+      
+      var vl = values.length;
       
       for ( var i = -1; ++i < vl; ) {
         var value = values[ i ];
@@ -409,8 +447,10 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             keys[ p ] = true;
       };
       
-      return Object.keys( keys );
-    } // columns_from_values()
+      columns = Object.keys( keys );
+    }
+    
+    return columns;
   }, // _get_columns()
   
   _add: function( values, options ) {
@@ -424,37 +464,21 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       , vl = values.length
     ;
     
-    if ( vl === 0 ) return emit();
+    if ( vl === 0 ) return emit(); // nothing
     
     var columns = this._get_columns( values )
       , cl = columns.length
     ;
     
-    if ( cl === 0 ) return emit();
+    if ( cl === 0 ) return emit(); // nothing
     
-    // Make bulk insert list and make emit values, limited to actual columns
-    // That way a read on the table should return the same values as emited values
-    // Attributes such as "flow" and "_v" will not be emitted unless explicity defined in options.columns
-    // Attributes present in some values but not others will be set as null
-    // There still may be some discrepencies if options.columns is not specified and some values have undefined columns
-    var bulk_values = '\nVALUES';
+    var bulk_values = make_bulk_insert_list( this._options.key, columns, values, emit_values );
     
-    for ( var i = -1; ++i < vl; ) {
-      var value = values[ i ]
-        , emit_value = emit_values[ i ] = {}
-        , c = columns[ 0 ]
-      ;
+    if ( typeof bulk_values !== 'string' ) { // this is an error object
+      // ToDo: send error to error dataflow
+      emit_error( bulk_values );
       
-      // there is at least one column
-      bulk_values += ( i ? ',\n  ( ' : '\n  ( ' ) + connection.escape( emit_value[ c ] = value[ c ] || null );
-      
-      for ( var j = 0; ++j < cl; ) {
-        c = columns[ j ];
-        
-        bulk_values += ', ' + connection.escape( emit_value[ c ] = value[ c ] || null );
-      }
-      
-      bulk_values += ' )';
+      return this;
     }
     
     columns = '\n  (' + columns.map( connection.escapeId ).join( ', ' ) + ')';
@@ -468,18 +492,65 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( 'INSERT ' + table + columns + bulk_values, function( error, results, fields ) {
       if ( error ) {
-        log( 'Unable to insert into', table, ', error:', error );
+        log( 'Unable to insert into', table
+          , ', code:'    , error.code
+          , ', number:'  , error.errno
+          , ', sqlState:', error.sqlState
+          , ', index:'   , error.index
+          , ', message:' , error.message
+          //, ', error:'   , error
+        );
         
-        // ToDo: Handle errors:
-        // - Duplicate key: this should not happen since removes should be done first however:
-        //   - these could be stored in an anti-state if unordered removes are desired
-        //   - this may happen if someone added the conflicting value in the background,
-        //     then consider updating
-        // - Connection error:
-        //   - should atempt to reconnect, if it fails continuously, then the application may not
-        //     be able to function, consider terminating the process
-        // - Constraints violations:
-        //   - consider terminating the process
+        /*
+          ToDo: Error Handling:
+          - Duplicate key: this should not happen since removes should be done first however:
+            - these could be stored in an anti-state if unordered removes are desired
+            - this may happen if someone added the conflicting value in the background,
+              then consider updating
+            - Example:
+              { [Error: ER_DUP_ENTRY: Duplicate entry '100000' for key 'PRIMARY'] code: 'ER_DUP_ENTRY', errno: 1062, sqlState: '23000', index: 0 }
+              
+          - Connection error:
+            - should atempt to reconnect, if it fails continuously, then the application may not
+              be able to function, consider terminating the process
+              
+          - Constraints violations
+          
+            Emit errors with sender information so that added values may be removed by sender.
+            Emitting to sender requires sender identification to be present either in incomming
+            options or inband. Incomming options are a good candidate for sender identification
+            inserted by clients' server.
+            
+            Because filter queries are used for authorizations and routing and that these do not
+            interpret options, sender information must be emitted inband, allowing senders to
+            query errors for updates they emitted.
+            
+            Emitted errors should be persistance-implementation-agnostic to allow senders to
+            interpret errors regardless of low-level presistance implementations. This means
+            that MySQL error code cannot be provided into error.
+            
+            These errors should be translatable into removes to allow the final state of senders'
+            stateful pipelets to be updated.
+            
+            Finaly a mechanism must exist to stop the propagation of errors once state has been
+            updated to prevent removes() to be propagated back to server, potentially alterring
+            the valid state of the database.
+        */
+        emit_error( {
+          // ToDo: provide toubkal error code from MySQL error
+          
+          engine: 'mysql',
+          
+          mysql: {
+            table   : that._table,
+            code    : error.code,
+            number  : error.errno,
+            sqlState: error.sqlState,
+            index   : error.index,
+            message : error.message,
+            sql     : sql
+          }
+        } )
         
         return;
       }
@@ -490,9 +561,84 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     return this;
     
+    /* --------------------------------------------------------------------------------------------
+       make_bulk_insert_list( key, columns, values, emit_values )
+       
+       Make bulk insert list and make emit values, limited to actual columns.
+       
+       That way a read on the table should return the same values as emited values
+       
+       Missing attributes will be set as null unless part of the key in which case an error is
+       returned.
+       
+       There still may be some discrepencies if columns is not specified and some values have
+       undefined columns.
+       
+       Returns:
+         String: bulk_values
+         Object: error
+    */
+    function make_bulk_insert_list( key, columns, values, emit_values ) {
+      var bulk_values = '\nVALUES';
+      
+      for ( var i = -1; ++i < vl; ) {
+        var value = values[ i ]
+          , emit_value = emit_values[ i ] = {}
+          , c, v
+        ;
+        
+        bulk_values += ( i ? ',\n  ' : '\n  ' );
+        
+        for ( var j = -1; ++j < cl; ) {
+          c = columns[ j ];
+          v = value[ c ];
+          
+          if ( v === null || v === undefined ) {
+            if ( key.indexOf( c ) !== -1 ) {
+              // this attribute is part of the key, it must be provided
+              return {
+                code: 'NULL_KEY_ATTRIBUTE',
+                position: i,
+                attribute: c,
+                message: 'Key attribute "' + c + '" value must be defined',
+                error_value: value
+              };
+            }
+            
+            v = null;
+          }
+          
+          bulk_values += ( j ? ', ' : '( ' ) + connection.escape( emit_value[ c ] = v );
+        }
+        
+        bulk_values += ' )';
+      }
+      
+      return bulk_values;
+    } // make_bulk_insert_list()
+    
     function emit() {
       return that.__emit_add( emit_values, options );
     } // emit()
+    
+    function emit_error( error ) {
+      error.flow = 'error';
+      
+      // The error_flow is the flow of the first value
+      // This is questionable but most likely correct
+      // A sender's error handler will receive all the values
+      error.error_flow = values[ 0 ].flow;
+      
+      error.operation = 'add';
+      
+      if ( options && options.sender ) {
+        error.sender = options.sender; // to allow routing of error back to sender
+      }
+      
+      error.values = values;
+      
+      return that.__emit_add( [ error ], options );
+    } // emit_error()
     
     function get_name() {
       return name || ( name = that._get_name( '_add' ) );
