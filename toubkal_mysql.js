@@ -269,7 +269,7 @@ function where_from_query( query, connection ) {
   function not_empty( v ) { return !!v }
   
   function translate_expression( connection, property, expression ) {
-    return false;
+  //  return false; // work in progress, don't translate to SQL for now
     
     var i = 0, sql = '';
     
@@ -353,15 +353,16 @@ function MySQL_Write( table, connection, options ) {
     .on( "remove", remove_connection )
   ;
   
-  Pipelet.call( this, options );
-
+  Greedy.call( this, options );
+  
   function add_connection( connections ) {
-    that._connection = connections[ connections.length - 1 ].mysql_connection;
+    var l = connections.length;
     
-    // Call waiters
-    that._waiters.forEach( function( waiter ) { waiter() } );
-    
-    that._waiters = [];
+    if ( l ) {
+      that._mysql_connection = connections[ l - 1 ].mysql_connection;
+      
+      that._call_waiters();
+    }
   } // add_connection()
   
   function remove_connection() {
@@ -369,14 +370,30 @@ function MySQL_Write( table, connection, options ) {
   } // remove_connection()
 } // MySQL_Write()
 
-Pipelet.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
+Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   _add_waiter: function( method, parameters ) {
     var that = this;
     
-    this._waiters.push( function() { that[ method ].apply( that, parameters ) } );
+    de&&ug( this._get_name( '_add_waiter' ) + 'method:' + method );
+    
+    this._waiters.push( { method: method, parameters: parameters } );
     
     return this;
   }, // _add_waiter()
+  
+  _call_waiters: function() {
+    var name = de && this._get_name( '_call_waiter' ) + 'method:'
+      , waiter
+    ;
+    
+    while( this._mysql_connection && ( waiter = this._waiters.shift() ) ) {
+      de&&ug( name, waiter.method );
+      
+      this[ waiter.method ].apply( this, waiter.parameters );
+    }
+    
+    return this;
+  }, // _call_waiters()
   
   _get_columns: function( values ) {
     return this._options.columns || columns_from_values( values );
@@ -397,9 +414,11 @@ Pipelet.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   }, // _get_columns()
   
   _add: function( values, options ) {
+    var that = this, name;
+    
     var connection = this._mysql_connection;
     
-    if ( ! connection ) return this._add_waiter( '_add', [ values, options ] );
+    if ( ! connection ) return this._add_waiter( '_add', arguments );
     
     var emit_values = []
       , vl = values.length
@@ -418,9 +437,7 @@ Pipelet.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // Attributes such as "flow" and "_v" will not be emitted unless explicity defined in options.columns
     // Attributes present in some values but not others will be set as null
     // There still may be some discrepencies if options.columns is not specified and some values have undefined columns
-    var bulk_values = '\nVALUES'
-      , escape = connection.escape
-    ;
+    var bulk_values = '\nVALUES';
     
     for ( var i = -1; ++i < vl; ) {
       var value = values[ i ]
@@ -429,12 +446,12 @@ Pipelet.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       ;
       
       // there is at least one column
-      bulk_values += ( i ? ',\n  ( ' : '\n  ( ' ) + escape( emit_value[ c ] = value[ c ] || null );
+      bulk_values += ( i ? ',\n  ( ' : '\n  ( ' ) + connection.escape( emit_value[ c ] = value[ c ] || null );
       
       for ( var j = 0; ++j < cl; ) {
         c = columns[ j ];
         
-        bulk_values += ', ' + escape( emit_value[ c ] = value[ c ] || null );
+        bulk_values += ', ' + connection.escape( emit_value[ c ] = value[ c ] || null );
       }
       
       bulk_values += ' )';
@@ -442,7 +459,11 @@ Pipelet.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     columns = '\n  (' + columns.map( connection.escapeId ).join( ', ' ) + ')';
     
-    var table = connection.escapeId( this._table );
+    var table = connection.escapeId( this._table )
+      , sql = 'INSERT ' + table + columns + bulk_values
+    ;
+    
+    de&&ug( this._get_name( '_add' ) + 'sql:', sql );
     
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( 'INSERT ' + table + columns + bulk_values, function( error, results, fields ) {
@@ -463,26 +484,41 @@ Pipelet.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         return;
       }
       
+      
       emit();
     } )
     
     return this;
     
     function emit() {
-      return that._emit_add( emit_values, options );
+      return that.__emit_add( emit_values, options );
     } // emit()
+    
+    function get_name() {
+      return name || ( name = that._get_name( '_add' ) );
+    } // get_name()
   }, // _add()
   
   _remove: function( values, options ) {
+    var that = this, name;
+    
     var connection = this._mysql_connection;
     
-    if ( ! connection ) return this._add_waiter( '_remove', [ values, options ] );
+    if ( ! connection ) return this._add_waiter( '_remove', arguments );
     
     // Delete values from table
     
     return this;
-  }
-} } );
+    
+    function emit() {
+      return that.__emit_remove( emit_values, options );
+    } // emit()
+    
+    function get_name() {
+      return name || ( name = that._get_name( '_remove' ) );
+    } // get_name()
+  } // _remove()
+} } ); // mysql_write()
 
 /* ------------------------------------------------------------------------------------------------
    mysql( table, connection, options )
@@ -504,10 +540,11 @@ Pipelet.Compose( 'mysql', function( source, table, connection, options ) {
     .mysql_connections( { mysql: options.mysql } )
   ;
   
-  return source
-    .mysql_write( table, connections, options )
-    .mysql_read( table, connections, options )
+  var writer = source.mysql_write( table, connections, options )
+    , reader = writer.mysql_read( table, connections, options )
   ;
+  
+  return rs.encapsulate( writer, reader, options );
 } );
 
 // toubkal_mysql.js
