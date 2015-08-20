@@ -57,7 +57,10 @@ Optional parameter options have optional attributes:
   - host (String): e.g. "localhost"
   - user (String): e.g. "root"
   - password (String): e.g. "therootpassword"
-- columns (String or Array of Strings): default is '*'
+- key (Array of Strings): used for remove operations and build SQL DELETE, default is ['id'].
+  On add and remove operations, all values must provide all key attributes.
+- columns (String or Array of Strings): used for SELECT and INSERT default is '*'.
+  On inserts, if colunns is not provided, it will be derived from added values which is somewhat slower.
 
 ## Licence
 

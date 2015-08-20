@@ -374,7 +374,26 @@ function MySQL_Write( table, connection, options ) {
   } // remove_connection()
 } // MySQL_Write()
 
+function null_key_attribute_error( position, attribute, value ) {
+  return {
+    code: 'NULL_KEY_ATTRIBUTE',
+    position: position,
+    attribute: attribute,
+    message: 'Key attribute "' + attribute + '" value must be defined',
+    error_value: value
+  };
+} // null_key_attribute_error()
+
 Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
+  /* ----------------------------------------------------------------------------------------------
+     _add_waiter( method, parameters )
+     
+     Add a MySQL connection waiter for method with parameters
+     
+     Parameters:
+     - method (String): this instance method name e.g. "_add" or "_remove"
+     - parameters (Array): parameters to call method when MySQL connection is ready
+  */
   _add_waiter: function( method, parameters ) {
     var that = this;
     
@@ -385,8 +404,13 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     return this;
   }, // _add_waiter()
   
+  /* ----------------------------------------------------------------------------------------------
+     _call_waiters()
+     
+     Call MySQL connection waiters as long as MySQL connection is ready
+  */
   _call_waiters: function() {
-    var name = de && this._get_name( '_call_waiter' ) + 'method:'
+    var name = de && this._get_name( '_call_waiter' ) + 'calling method:'
       , waiter
     ;
     
@@ -453,24 +477,24 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     return columns;
   }, // _get_columns()
   
+  /* ----------------------------------------------------------------------------------------------
+     _add( values, options )
+  */
   _add: function( values, options ) {
-    var that = this, name;
+    var emit_values = [];
     
-    var connection = this._mysql_connection;
+    if ( values.length === 0 ) return emit(); // nothing
+    
+    var that = this
+      , name
+      , connection = this._mysql_connection
+    ;
     
     if ( ! connection ) return this._add_waiter( '_add', arguments );
     
-    var emit_values = []
-      , vl = values.length
-    ;
+    var columns = this._get_columns( values );
     
-    if ( vl === 0 ) return emit(); // nothing
-    
-    var columns = this._get_columns( values )
-      , cl = columns.length
-    ;
-    
-    if ( cl === 0 ) return emit(); // nothing
+    if ( columns.length === 0 ) return emit(); // nothing
     
     var bulk_values = make_bulk_insert_list( this._options.key, columns, values, emit_values );
     
@@ -490,9 +514,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     de&&ug( this._get_name( '_add' ) + 'sql:', sql );
     
     // All added values should have been removed first, the order of operations is important for MySQL
-    connection.query( 'INSERT ' + table + columns + bulk_values, function( error, results, fields ) {
+    connection.query( sql, function( error, results, fields ) {
       if ( error ) {
-        log( 'Unable to insert into', table
+        log( 'Unable to INSERT INTO', table
           , ', code:'    , error.code
           , ', number:'  , error.errno
           , ', sqlState:', error.sqlState
@@ -555,8 +579,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         return;
       }
       
-      
-      emit();
+      emit(); // valid values
     } )
     
     return this;
@@ -579,7 +602,10 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
          Object: error
     */
     function make_bulk_insert_list( key, columns, values, emit_values ) {
-      var bulk_values = '\nVALUES';
+      var bulk_values = '\nVALUES'
+        , vl = values.length
+        , cl = columns.length
+      ;
       
       for ( var i = -1; ++i < vl; ) {
         var value = values[ i ]
@@ -596,13 +622,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           if ( v === null || v === undefined ) {
             if ( key.indexOf( c ) !== -1 ) {
               // this attribute is part of the key, it must be provided
-              return {
-                code: 'NULL_KEY_ATTRIBUTE',
-                position: i,
-                attribute: c,
-                message: 'Key attribute "' + c + '" value must be defined',
-                error_value: value
-              };
+              return null_key_attribute_error( i, c, value );
             }
             
             v = null;
@@ -645,20 +665,137 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     } // get_name()
   }, // _add()
   
+  /* ----------------------------------------------------------------------------------------------
+     _remove( values, options )
+  */
   _remove: function( values, options ) {
+    var emit_values = []
+      , vl = values.length
+      , key = this._options.key
+      , kl = key.length
+    ;
+    
+    if ( vl === 0 || kl === 0 ) return emit();
+    
     var that = this, name;
     
     var connection = this._mysql_connection;
     
     if ( ! connection ) return this._add_waiter( '_remove', arguments );
     
-    // Delete values from table
+    // DELETE FROM table WHERE conditions
+    
+    // Build conditions based on key
+    var where = ' WHERE'
+      , i, j, value, a, v
+    ;
+    
+    if ( kl > 1 ) {
+      for ( i = -1; ++i < vl; ) {
+        value = values[ i ];
+        
+        if ( i > 0 ) where += ' OR';
+        
+        where += ' (';
+        
+        for ( j = -1; ++j < kl; ) {
+          a = key[ j ];
+          v = value[ a ];
+          
+          if ( v === null || v === undefined ) {
+            return emit_error( null_key_attribute_error( i, a, value ) );
+          }
+          
+          where += ( j ? ' AND ' : ' ' ) + connection.escapeId( a ) + ' = ' + connection.escape( v );
+        }
+        
+        where += ' )';
+      }
+    } else {
+      a = key[ 0 ];
+      
+      where += ' ' + connection.escapeId( a ) + ' IN (';
+      
+      for ( i = -1; ++i < vl; ) {
+        value = values[ i ];
+        v = value[ a ];
+        
+        if ( v === null || v === undefined ) {
+          return emit_error( null_key_attribute_error( i, a, value ) );
+        }
+        
+        where += ( i ? ', ' : ' ' ) + connection.escape( v );
+      }
+      
+      where += ' )';
+    }
+    
+    var table = connection.escapeId( this._table )
+      , sql = 'DELETE FROM ' + table + where
+    ;
+    
+    de&&ug( this._get_name( '_remove' ) + 'sql:', sql );
+    
+    // All added values should have been removed first, the order of operations is important for MySQL
+    connection.query( sql, function( error, results, fields ) {
+      if ( error ) {
+        log( 'Unable to DELETE FROM', table
+          , ', code:'    , error.code
+          , ', number:'  , error.errno
+          , ', sqlState:', error.sqlState
+          , ', index:'   , error.index
+          , ', message:' , error.message
+          , ', error:'   , error
+        );
+        
+        emit_error( {
+          // ToDo: provide toubkal error code from MySQL error
+          
+          engine: 'mysql',
+          
+          mysql: {
+            table   : that._table,
+            code    : error.code,
+            number  : error.errno,
+            sqlState: error.sqlState,
+            index   : error.index,
+            message : error.message,
+            sql     : sql
+          }
+        } )
+        
+        return;
+      }
+      
+      emit_values = values;
+      
+      emit(); // valid values
+    } )
     
     return this;
     
     function emit() {
       return that.__emit_remove( emit_values, options );
     } // emit()
+    
+    function emit_error( error ) {
+      error.flow = 'error';
+      
+      // The error_flow is the flow of the first value
+      // This is questionable but most likely correct
+      // A sender's error handler will receive all the values
+      error.error_flow = values[ 0 ].flow;
+      
+      error.operation = 'remove';
+      
+      if ( options && options.sender ) {
+        error.sender = options.sender; // to allow routing of error back to sender
+      }
+      
+      error.values = values;
+      
+      return that.__emit_add( [ error ], options );
+    } // emit_error()
     
     function get_name() {
       return name || ( name = that._get_name( '_remove' ) );
