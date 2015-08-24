@@ -452,24 +452,24 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
     } else {
       // Find columns from key and values.
+      var keys = {};
       
-      var keys = key.map( function( p ) {
-        var a = {};
-        
-        a[ p ] = true;
-        
-        return a;
-      } );
+      // Add key columns as properties of keys, set to true
+      key.forEach( function( p ) { keys[ p ] = true } );
       
       var vl = values.length;
       
       for ( var i = -1; ++i < vl; ) {
         var value = values[ i ];
         
-        for ( var p in value )
-          if ( p !== 'flow' && p !== '_v' && value.hasOwnProperty( p ) )
-            keys[ p ] = true;
-      };
+        for ( var p in value ) {
+          keys[ p ] || value.hasOwnProperty( p ) && ( keys[ p ] = true );
+        }
+      }
+      
+      // Remove flow and _v attributes if added
+      delete keys[ 'flow' ];
+      delete keys[ '_v' ];
       
       columns = Object.keys( keys );
     }
