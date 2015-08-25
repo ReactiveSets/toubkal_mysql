@@ -814,8 +814,6 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
      - mysql (Object): default mysql connection options, see mysql_connections()
      - columns (String or Array of Strings): default is '*'
 */
-require( 'toubkal/lib/server/file.js' ); // for configuration()
-
 Pipelet.Compose( 'mysql', function( source, table, connection, options ) {
   var connections = rs
     .configuration( { filepath: options.configuration } )
