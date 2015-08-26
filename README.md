@@ -73,7 +73,7 @@ Where "authorized_clients" is a dataflow of authorized updates from clients;
 $ npm install toubkal_mysql
 ```
 
-Features:
+## Features:
 - Toubkal pipelet: get updates in real-time
 - Hides MySQL credentials in JSON configuration file
 - Waits indefinitely for ready MySQL connection to process operations
@@ -90,7 +90,7 @@ failed operations
 
 ### mysql( table, columns, options )
 
-Provides a Toubkal dataflow for MySQL "table", for user account "mysql_user".
+Provides a Toubkal dataflow for MySQL "table".
 
 Parameters:
 - table (String): MySQL table name. The table must exist in MySQL and must have a primary key
@@ -104,7 +104,13 @@ Parameters:
 - options (Object): optional attributes:
   - connection (String): MySQL connection identifier in configuration file, default is 'root'
   - configuration (String): filename of configuration file, default is ~/config.rs.json
-  - mysql (Object): default mysql connection options, see mysql_connections()
+  - mysql (Object): 
+    [connection options for "mysql" npm module](https://www.npmjs.com/package/mysql#connection-options).
+    These options supercede those from the configuration file, main options are:
+    - host (String): e.g. "localhost"
+    - user (String): e.g. "root"
+    - password (String): e.g. "therootpassword"
+    - database (String): e.g. "test"
   - key (Array of Strings): defines the primary key, if key columns are aliased as defined
     above, alliased column names MUST be provided. default is [ 'id' ]
 
