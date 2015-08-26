@@ -1,8 +1,12 @@
 # MySQL Pipelets for [Toubkal](https://github.com/ReactiveSets/toubkal)
 
+Not yet published to npm
+
 [![NPM version](https://badge.fury.io/js/toubkal_mysql.png)](http://badge.fury.io/js/toubkal_mysql)
 
-Stability: Experimental, needs CI testing.
+API Stability: Unstable, this API is under development
+
+Needs Travis CI testing
 
 ## Usage
 
@@ -11,9 +15,18 @@ Getting a dataflow from "users" table in the "test" database using the "root" ac
 ```javascript
 var rs = require( 'toubkal_mysql' );
 
-rs.mysql( 'test.users', 'root' )
-  .trace( 'users' )              // displays users' from NYC (per filter bellow)
-  .filter( [ { city: 'NYC' } ] ) // i.e. SELECT users WHERE city = "NYC"
+var users = rs.mysql(
+      'root'
+    , 'test.users'
+    , [ 'id', 'email', 'first_name', 'last_name', 'city' ]
+  )
+;
+
+users
+  .filter( [ { city: 'NYC' } ] ) // Will query using SELECT * FROM users WHERE city = "NYC"
+
+  .trace( 'users' )              // displays users' from NYC
+
   .set()                         // Cache NYC users for downstream consumption
 ;
 ```
@@ -39,28 +52,61 @@ Where the "root" account is defined in configuration file "~/config.rs.json", hi
 Where "mysql" object provides options for connecting to MySQL database. [All connection options are from "mysql"
 npm module](https://www.npmjs.com/package/mysql#connection-options).
 
+Updating users table only requires to direct dataflow to input of mysql - e.g. directing authorized clients'
+output to mysql():
+```javascript
+var rs = require( 'toubkal_mysql' );
+
+var users = authorized_clients.mysql(
+      'root'
+    , 'test.users'
+    , [ 'id', 'email', 'first_name', 'last_name', 'city' ]
+  )
+;
+```
+
+Where "authorized_clients" is a dataflow of authorized updates from clients;
+
 ## Install
 
 ```bash
 $ npm install toubkal_mysql
 ```
 
-## Documentation
+Features:
+- Toubkal pipelet: get updates in real-time
+- Hides MySQL credentials in JSON configuration file
+- Waits indefinitely for ready MySQL connection to process operations
+- Stateless, does not keep anything in memory, relies on MySQL cache
+- Dynamically creates optimized MySQL queries:
+  - SELECT queries from downsteam pipelet queries typically provided by Toubkal filter() pipelets
+  - DELETE queries from upstream remove operations using "key" option
+  - INSERT queries from upstream add opeations using "columns" parameter
+- Allows column name aliases
+- Emits detailled errors in error dataflow for downstream error reporting and recovery by reverting
+failed operations
 
-### mysql( table, user, options )
+## Reference
 
-Provides a Toubkal dataflow for MySQL "table", for user account "user".
+### mysql( table, columns, options )
 
-Optional parameter options have optional attributes:
-- configuration (String): filename, default is "~/config.rs.json"
-- mysql (Object): [connection options for "mysql" npm module](https://www.npmjs.com/package/mysql#connection-options), main options are:
-  - host (String): e.g. "localhost"
-  - user (String): e.g. "root"
-  - password (String): e.g. "therootpassword"
-- key (Array of Strings): used for remove operations and build SQL DELETE, default is ['id'].
-  On add and remove operations, all values must provide all key attributes.
-- columns (String or Array of Strings): used for SELECT and INSERT default is '*'.
-  On inserts, if colunns is not provided, it will be derived from added values which is somewhat slower.
+Provides a Toubkal dataflow for MySQL "table", for user account "mysql_user".
+
+Parameters:
+- table (String): MySQL table name. The table must exist in MySQL and must have a primary key
+  that will be identical to the Pipelet's key unless aliased (see columns definition bellow).
+- columns (Array): defines all desired columns, and MUST include the primary key, to create
+  SELECT, DELETE and INSERT queries. Each column is defined as:
+  - (String): column name
+  - (Object):
+    - id: MySQL column name
+    - as: dataflow attribute name, default is id
+- options (Object): optional attributes:
+  - connection (String): MySQL connection identifier in configuration file, default is 'root'
+  - configuration (String): filename of configuration file, default is ~/config.rs.json
+  - mysql (Object): default mysql connection options, see mysql_connections()
+  - key (Array of Strings): defines the primary key, if key columns are aliased as defined
+    above, alliased column names MUST be provided. default is [ 'id' ]
 
 ## Licence
 

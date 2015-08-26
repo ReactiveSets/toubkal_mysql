@@ -68,7 +68,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
       // hide paswword, preventing downstream traces from disclosing it
       connection.mysql.password = connection.mysql.password && '***';
       
-      de&&ug( this._get_name( '_add_value' ) + ', mysql:', connection.mysql );
+      de&&ug( this._get_name( '_add_value' ) + 'mysql:', connection.mysql );
       
       // Try to connect immediately
       mysql_connection.connect( function( error ) {
@@ -137,7 +137,7 @@ function MySQL_Read( table, connection, options ) {
     .on( "add", add_connection )
   ;
   
-  Greedy.call( this, [], options );
+  Greedy.call( this, options );
   
   function add_connection( connections ) {
     if ( connections.length ) {
@@ -197,6 +197,7 @@ MySQL_Read.Output = Greedy.Output.subclass(
         , table = mysql_connection.escapeId( p._table )
         , columns = options.columns
         , where = ''
+        , that = this
       ;
       
       columns = columns
@@ -208,14 +209,16 @@ MySQL_Read.Output = Greedy.Output.subclass(
       
       var sql = 'SELECT ' + columns + ' FROM ' + table + where;
       
-      de&&ug( this._get_name( '_fetch' ) + ', sql:', sql, typeof receiver, query );
+      de&&ug( name() + ', sql:', sql, typeof receiver, query );
       
       mysql_connection.query( sql, function( error, results, fields ) {
         if ( error ) {
-          log( 'Unable to read', table, ', error:', error );
+          log( name() + ', unable to read', table, ', error:', error );
           
           return;
         }
+        
+        de&&ug( name() + ', results before query filter:', results.length );
         
         if ( query ) {
           results = new Query( query ).generate().filter( results );
@@ -223,6 +226,10 @@ MySQL_Read.Output = Greedy.Output.subclass(
         
         receiver( results, true );
       } )
+      
+      function name() {
+        return that._get_name( '_fetch' );
+      } // name()
     } // _fetch()
   } // MySQL_Read.Output instance methods
 ); // MySQL_Read.Output
@@ -245,6 +252,7 @@ function where_from_query( query, connection ) {
             case '[object Number]':
             case '[object String]':
               // scalar values where strict equality is desired
+              // ToDo use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
             return connection.escapeId( property ) + ' = ' + connection.escape( value );
             
             case '[object Array]': // expression
@@ -322,12 +330,7 @@ function where_from_query( query, connection ) {
   } // translate_expression()
 } // where_from_query()
 
-Greedy.Build( 'mysql_read', MySQL_Read, function( Super ) { return {
-  _add: function( values, options ) {
-    // ToDo: SELECT table WHERE <build statement to read added values and unquote objects>
-    return Super._add.call( this, values, options );
-  }, // _add()
-} } );
+Greedy.Build( 'mysql_read', MySQL_Read );
 
 /* ------------------------------------------------------------------------------------------------
    mysql_write( table, connection, options )
@@ -514,7 +517,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     de&&ug( this._get_name( '_add' ) + 'sql:', sql );
     
     // All added values should have been removed first, the order of operations is important for MySQL
-    connection.query( sql, function( error, results, fields ) {
+    connection.query( sql, function( error, results ) {
       if ( error ) {
         log( 'Unable to INSERT INTO', table
           , ', code:'    , error.code
@@ -578,6 +581,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         
         return;
       }
+      
+      de&&ug( get_name() + 'inserted rows:', results.affectedRows );
       
       emit(); // valid values
     } )
@@ -737,9 +742,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     de&&ug( this._get_name( '_remove' ) + 'sql:', sql );
     
     // All added values should have been removed first, the order of operations is important for MySQL
-    connection.query( sql, function( error, results, fields ) {
+    connection.query( sql, function( error, results ) {
       if ( error ) {
-        log( 'Unable to DELETE FROM', table
+        log( get_name() + 'unable to DELETE FROM', table
           , ', code:'    , error.code
           , ', number:'  , error.errno
           , ', sqlState:', error.sqlState
@@ -768,6 +773,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       }
       
       emit_values = values;
+      
+      de&&ug( get_name() + 'deleted rows:', results.affectedRows );
       
       emit(); // valid values
     } )
@@ -804,28 +811,128 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
 } } ); // mysql_write()
 
 /* ------------------------------------------------------------------------------------------------
-   mysql( table, connection, options )
+   mysql( table, columns, options )
    
    Parameters:
-   - table (String): mysql table name
-   - connection (String): id of connection in configuration file, e.g. 'root'
-   - options (optional Object): optional attributes:
+   - table (String): MySQL table name. The table must exist in MySQL and must have a primary key
+     that will be identical to the Pipelet's key unless aliased (see columns definition bellow).
+   
+   - columns (Array): defines all columns used for SELECT and INSERT, including primary key.
+     Each column is defined as:
+     - (String): column name
+     - (Object):
+       - id: MySQL column name
+       - as: dataflow attribute name, default is id
+   
+   - options (Object): optional attributes:
+     - connection (String): id of connection in configuration file, default is 'root'
+     
      - configuration (String): filename of configuration file, default is ~/config.rs.json
+     
      - mysql (Object): default mysql connection options, see mysql_connections()
-     - columns (String or Array of Strings): default is '*'
+     
+     - key (Array of Strings): defines the primary key, if key columns are aliased as defined
+       above, alliased column names MUST be provided. default is [ 'id' ]
 */
-Pipelet.Compose( 'mysql', function( source, table, connection, options ) {
+Pipelet.Compose( 'mysql', function( source, table, columns, options ) {
   var connections = rs
     .configuration( { filepath: options.configuration } )
-    .filter( [ { id: 'toubkal_mysql#' + connection } ] )
+    .filter( [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ] )
     .mysql_connections( { mysql: options.mysql } )
   ;
   
-  var writer = source.mysql_write( table, connections, options )
-    , reader = writer.mysql_read( table, connections, options )
+  var mysql_columns = []
+    , input
+    , output
+    , need_alter = false
+    , mysql_aliases = {}
+    , attribute_aliases = {}
   ;
   
-  return rs.encapsulate( writer, reader, options );
-} );
+  columns.forEach( get_alias );
+  
+  options = extend( {}, options, {
+    key: options.key.map( function( a ) { return attribute_aliases[ a ] || a } ),
+    columns: mysql_columns
+  } );
+  
+  de&&ug( 'mysql(), options:', options );
+  
+  if ( need_alter ) {
+    // At least one column is not a string, will need to alter
+    input = source.alter( alter_in, { no_clone : true } );
+    
+    output = input
+      .mysql_write( table, connections, options )
+      .mysql_read ( table, connections, options )
+      .alter( alter_out, { no_clone : true, query_transform: alter_in } ) // non-greedy
+    ;
+  } else {
+    input = source.mysql_write( table, connections, options );
+    output = input.mysql_read ( table, connections, options );
+  }
+  
+  return rs.encapsulate( input, output, options );
+  
+  function get_alias( column ) {
+    var as = column;
+    
+    if ( typeof column == 'object' && column.as ) {
+      need_alter = true;
+      
+      as = column.as;
+      
+      column = column.id;
+    }
+    
+    mysql_columns.push( column );
+    
+    mysql_aliases[ column ] = as;
+    attribute_aliases[ as ] = column;
+  } // get_alias()
+  
+  function alter_in( value ) {
+    var v = {}, ___;
+    
+    for ( var a in attribute_aliases ) {
+      var _v = value[ a ];
+      
+      if ( _v !== ___ ) v[ attribute_aliases[ a ] ] = _v;
+    }
+    
+    return v;
+  } // alter_in()
+  
+  function alter_out( value ) {
+    if ( value.flow === 'error' ) {
+      // make shallow copy of value
+      value = rs.RS.extend._2( {}, value );
+      
+      // alter error values
+      if ( value.values ) {
+        value.values = value.values.map( alter );
+      }
+      
+      // alter error_value
+      if ( value.error_value ) {
+        value.error_value = alter( value.error_value );
+      }
+      
+      return value;
+    }
+    
+    return alter( value );
+    
+    function alter( value ) {
+      var v = {};
+      
+      for ( var a in mysql_aliases ) {
+        v[ mysql_aliases[ a ] ] = value[ a ] || null;
+      }
+      
+      return v;
+    }
+  } // alter_out()
+} ); // mysql()
 
 // toubkal_mysql.js
