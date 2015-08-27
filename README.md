@@ -8,65 +8,6 @@ API Stability: Unstable, this API is under development
 
 Needs Travis CI testing
 
-## Usage
-
-Getting a dataflow from "users" table in the "test" database using the "root" account:
-
-```javascript
-var rs = require( 'toubkal_mysql' );
-
-var users = rs.mysql(
-      'root'
-    , 'test.users'
-    , [ 'id', 'email', 'first_name', 'last_name', 'city' ]
-  )
-;
-
-users
-  .filter( [ { city: 'NYC' } ] ) // Will query using SELECT * FROM users WHERE city = "NYC"
-
-  .trace( 'users' )              // displays users' from NYC
-
-  .set()                         // Cache NYC users for downstream consumption
-;
-```
-
-Where the "root" account is defined in configuration file "~/config.rs.json", hiding credentials, e.g.
-
-```javascript
-[
-  {
-    "id"      : "toubkal_mysql#root",
-    "module"  : "toubkal_mysql",
-    "name"    : "root",
-
-    "mysql": {
-      "host"    : "localhost",
-      "user"    : "root",
-      "password": "***"
-    }
-  }
-]
-```
-
-Where "mysql" object provides options for connecting to MySQL database. [All connection options are from "mysql"
-npm module](https://www.npmjs.com/package/mysql#connection-options).
-
-Updating users table only requires to direct dataflow to input of mysql - e.g. directing authorized clients'
-output to mysql():
-```javascript
-var rs = require( 'toubkal_mysql' );
-
-var users = authorized_clients.mysql(
-      'root'
-    , 'test.users'
-    , [ 'id', 'email', 'first_name', 'last_name', 'city' ]
-  )
-;
-```
-
-Where "authorized_clients" is a dataflow of authorized updates from clients;
-
 ## Install
 
 ```bash
@@ -78,13 +19,85 @@ $ npm install toubkal_mysql
 - Hides MySQL credentials in JSON configuration file
 - Waits indefinitely for ready MySQL connection to process operations
 - Stateless, does not keep anything in memory, relies on MySQL cache
+- Can be cached explitity using set() pipelet
 - Dynamically creates optimized MySQL queries:
-  - SELECT queries from downsteam pipelet queries typically provided by Toubkal filter() pipelets
+  - SELECT queries from downsteam pipelet queries provided by Toubkal filter() pipelets
   - DELETE queries from upstream remove operations using "key" option
   - INSERT queries from upstream add opeations using "columns" parameter
 - Allows column name aliases
 - Emits detailled errors in error dataflow for downstream error reporting and recovery by reverting
 failed operations
+
+## Usage
+
+### Reading 'test.users' table
+
+Getting a dataflow from "users" table in the "test" database using the "root" MySQL account:
+
+```javascript
+var rs = require( 'toubkal_mysql' );
+
+rs.mysql( 'test.users',
+    , [ 'id', 'email', 'first_name', 'last_name', 'city' ]
+  )
+  
+  .filter( [ { city: 'NYC' } ] ) // Query using SELECT * FROM users WHERE city = "NYC"
+
+  .trace( 'users' )              // displays users' from NYC
+
+  .set()                         // Cache NYC users for downstream consumption
+;
+```
+
+### Updating 'test.users' Table
+
+Updating users table only requires to connect a dataflow upstream of mysql - e.g. connecting authorized clients'
+upstream of mysql():
+```javascript
+var rs = require( 'toubkal_mysql' );
+
+authorized_clients
+    
+  // Upstream (of mysql): updates, for DELETE and INSERT
+  
+  .mysql( 'test.users',
+    [ 'id', 'email', 'first_name', 'last_name', 'city' ]
+  )
+  
+  // Downstream (of mysql): fetching, and real-time updates
+  
+  ._add_destination( authorized_clients )
+;
+```
+
+Where "authorized_clients" is a dataflow of authorized updates from clients;
+
+
+### Account Credentials Hiding in Configuration
+
+The "root" account is defined in configuration file "~/config.rs.json", hiding credentials, e.g.
+
+```javascript
+[
+  {
+    "id"      : "toubkal_mysql#root",
+    "module"  : "toubkal_mysql",
+    "name"    : "root",
+
+    "mysql": {
+      "host"    : "localhost",
+      "user"    : "root",
+      "password": "<password for root account>"
+    }
+  }
+]
+```
+
+Where "mysql" object provides options for connecting to MySQL database. [All connection options are from "mysql"
+npm module](https://www.npmjs.com/package/mysql#connection-options).
+
+Many MySQL servers configuration can be defined in the same JSON configuration
+file by adding objects with a unique "id" assigned with the value "toubkal_mysql#<account name>".
 
 ## Reference
 
@@ -102,8 +115,8 @@ Parameters:
     - id: MySQL column name
     - as: dataflow attribute name, default is id
 - options (Object): optional attributes:
-  - connection (String): MySQL connection identifier in configuration file, default is 'root'
-  - configuration (String): filename of configuration file, default is ~/config.rs.json
+  - connection (String): MySQL connection identifier in configuration file, default is "root"
+  - configuration (String): filename of configuration file, default is "~/config.rs.json"
   - mysql (Object): 
     [connection options for "mysql" npm module](https://www.npmjs.com/package/mysql#connection-options).
     These options supercede those from the configuration file, main options are:
@@ -111,8 +124,8 @@ Parameters:
     - user (String): e.g. "root"
     - password (String): e.g. "therootpassword"
     - database (String): e.g. "test"
-  - key (Array of Strings): defines the primary key, if key columns are aliased as defined
-    above, alliased column names MUST be provided. default is [ 'id' ]
+  - key (Array of Strings): defines the primary key, may be aliased with columns parameter
+    definition. default is [ 'id' ]
 
 ## Licence
 
