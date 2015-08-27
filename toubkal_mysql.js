@@ -198,14 +198,15 @@ MySQL_Read.Output = Greedy.Output.subclass(
         , columns = options.columns
         , where = ''
         , that = this
+        , columns_aliases = []
       ;
       
       columns = columns
-        ? columns.map( mysql_connection.escapeId ).join( ', ' )
+        ? columns.map( column_to_sql ).join( ', ' )
         : '*'
       ;
       
-      if ( query ) where = where_from_query( query, mysql_connection );
+      if ( query ) where = where_from_query( query, mysql_connection, columns_aliases );
       
       var sql = 'SELECT ' + columns + ' FROM ' + table + where;
       
@@ -215,17 +216,41 @@ MySQL_Read.Output = Greedy.Output.subclass(
         if ( error ) {
           log( name() + ', unable to read', table, ', error:', error );
           
+          // ToDo: handle errors
+          
           return;
         }
         
-        de&&ug( name() + ', results before query filter:', results.length );
-        
         if ( query ) {
+          de&&ug( name() + ', results before query filter:', results.length );
+          
           results = new Query( query ).generate().filter( results );
         }
         
+        de&&ug( name() + ', results:', results.length );
+        
         receiver( results, true );
       } )
+      
+      function column_to_sql( column ) {
+        var as = column;
+        
+        if ( typeof column === 'object' ) {
+          as = column.as;
+          column = column.id;
+          
+        }
+        
+        columns_aliases[ as ] = column;
+        
+        column = mysql_connection.escapeId( column );
+        
+        if ( as !== column ) {
+          column += ' AS ' + mysql_connection.escapeId( as );
+        }
+        
+        return column;
+      } // column_to_sql()
       
       function name() {
         return that._get_name( '_fetch' );
@@ -234,7 +259,7 @@ MySQL_Read.Output = Greedy.Output.subclass(
   } // MySQL_Read.Output instance methods
 ); // MySQL_Read.Output
 
-function where_from_query( query, connection ) {
+function where_from_query( query, connection, columns_aliases ) {
   var where = query
     .map( function( or_term ) {
       de&&ug( 'where_from_query(), or_term:', or_term );
@@ -253,7 +278,7 @@ function where_from_query( query, connection ) {
             case '[object String]':
               // scalar values where strict equality is desired
               // ToDo use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
-            return connection.escapeId( property ) + ' = ' + connection.escape( value );
+            return connection.escapeId( columns_aliases[ property ] ) + ' = ' + connection.escape( value );
             
             case '[object Array]': // expression
             return translate_expression( connection, property, value );
@@ -851,10 +876,18 @@ Pipelet.Compose( 'mysql', function( source, table, columns, options ) {
   
   columns.forEach( get_alias );
   
-  options = extend( {}, options, {
-    key: options.key.map( function( a ) { return attribute_aliases[ a ] || a } ),
-    columns: mysql_columns
-  } );
+  var alliased_key = options.key
+        .map( function( a ) {
+          return attribute_aliases[ a ] || a
+        } )
+    
+    , write_options = extend( {}, options, {
+        key: alliased_key,
+        columns: mysql_columns
+      } )
+    
+    , read_options = extend( {}, options, { columns: columns } )
+  ;
   
   de&&ug( 'mysql(), options:', options );
   
@@ -863,13 +896,13 @@ Pipelet.Compose( 'mysql', function( source, table, columns, options ) {
     input = source.alter( alter_in, { no_clone : true } );
     
     output = input
-      .mysql_write( table, connections, options )
-      .mysql_read ( table, connections, options )
-      .alter( alter_out, { no_clone : true, query_transform: alter_in } ) // non-greedy
+      .mysql_write( table, connections, write_options )
+      .alter( alter_out, { no_clone : true } )
+      .mysql_read ( table, connections, read_options  )
     ;
   } else {
-    input = source.mysql_write( table, connections, options );
-    output = input.mysql_read ( table, connections, options );
+    input = source.mysql_write( table, connections, write_options );
+    output = input.mysql_read ( table, connections, read_options  );
   }
   
   return rs.encapsulate( input, output, options );
@@ -892,10 +925,10 @@ Pipelet.Compose( 'mysql', function( source, table, columns, options ) {
   } // get_alias()
   
   function alter_in( value ) {
-    var v = {}, ___;
+    var v = {}, _v, ___;
     
     for ( var a in attribute_aliases ) {
-      var _v = value[ a ];
+      _v = value[ a ];
       
       if ( _v !== ___ ) v[ attribute_aliases[ a ] ] = _v;
     }
