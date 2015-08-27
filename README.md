@@ -87,7 +87,7 @@ The "root" account is defined in configuration file "~/config.rs.json", hiding c
     "mysql": {
       "host"    : "localhost",
       "user"    : "root",
-      "password": "\<password for root account\>"
+      "password": "<password for root account>"
     }
   }
 ]
