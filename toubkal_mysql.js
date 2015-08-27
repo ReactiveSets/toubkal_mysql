@@ -109,23 +109,22 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
 } ); // mysql_connections()
 
 /* ------------------------------------------------------------------------------------------------
-   mysql_read( table, connection, options )
+   mysql_read( table, columns, connection, options )
    
    Parameters:
    - table (String): mysql table name
+   - columns (Array of Columns): see mysql() for definition
    - connection (Pipelet): mysql_connections() output (will use the last added)
    - options (optional Object): optional attributes:
-     - key (Array of Strings): field names used to build WHERE clause to SELECT added and removed
-       values (not currently used)
-     - columns (Array of Strings): default is ['*']
+     - key (Array of Strings):  field names used to build WHERE clause for DELETE, may be aliased
+       by columns
    
-   ToDo: implement add to read from the table
    ToDo: implement trigger pipelet to pipe changes into process, generating a dataflow of changes to be read
 */
-function MySQL_Read( table, connection, options ) {
+function MySQL_Read( table, columns, connection, options ) {
   var that = this;
   
-  this._output || ( this._output = new MySQL_Read.Output( this, 'mysql_read_out' ) );
+  this._output || ( this._output = new MySQL_Read.Output( this, 'mysql_read_out', columns ) );
   
   this._table = table;
   this._mysql_connection = null;
@@ -155,8 +154,9 @@ function MySQL_Read( table, connection, options ) {
 MySQL_Read.Output = Greedy.Output.subclass(
   'MySQL_Read.Output',
   
-  function( p, name ) {
+  function( p, name, columns ) {
     this.receivers = [];
+    this.columns = columns;
     
     Greedy.Output.call( this, p, name )
   },
@@ -193,9 +193,8 @@ MySQL_Read.Output = Greedy.Output.subclass(
       
       if ( ! mysql_connection ) return this.add_receiver( arguments );
       
-      var options = p._options
-        , table = mysql_connection.escapeId( p._table )
-        , columns = options.columns
+      var table = mysql_connection.escapeId( p._table )
+        , columns = this.columns
         , where = ''
         , that = this
         , columns_aliases = []
@@ -358,23 +357,21 @@ function where_from_query( query, connection, columns_aliases ) {
 Greedy.Build( 'mysql_read', MySQL_Read );
 
 /* ------------------------------------------------------------------------------------------------
-   mysql_write( table, connection, options )
+   mysql_write( table, columns, connection, options )
    
    Parameters:
    - table (String): mysql table name
+   - columns (Array of Columns): see mysql() for definition of Column
    - connection (Pipelet): mysql_connections() output (will use the last added)
    - options (optional Object): optional attributes:
      - key (Array of Strings): the set of fileds that uniquely define objects and used to build
-       a WHERE clause for DELETE queries.
-       
-     - columns (Array of Strings): default will get them from values which may is slower on large
-       inserts and is not recommended because it may lead to some discrepencies on inserts where
-       some values may not be emitted while they would be emited as null when read from the table.
+       a WHERE clause for DELETE queries. May be aliased by columns
 */
-function MySQL_Write( table, connection, options ) {
+function MySQL_Write( table, columns, connection, options ) {
   var that = this;
   
   this._table = table;
+  this._columns = columns;
   this._mysql_connection = null;
   this._waiters = [];
   
@@ -452,60 +449,6 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   }, // _call_waiters()
   
   /* ----------------------------------------------------------------------------------------------
-     _get_columns( values )
-     
-     Get columns from:
-       - if options.columns is set from options.key and options.columns
-       - otherwise from options.key and values
-     .
-     
-     Attributes flow and _v are ignored from options.key and values, but are accepted from
-     options.columns.
-  */
-  _get_columns: function( values ) {
-    var options = this._options
-      , key = options.key.filter( function( p ) { return p !== 'flow' && p !== '_v'; } )
-      , columns = options.columns
-    ;
-    
-    if ( columns ) {
-      // Add key attributes to columns if not present, they should!
-      
-      // Make a copy of columns to prevent alteration
-      columns = slice.call( columns );
-      
-      key.forEach( function( p ) {
-        if ( columns.indexOf( p ) === -1 ) columns.unshift( p );
-      } );
-      
-    } else {
-      // Find columns from key and values.
-      var keys = {};
-      
-      // Add key columns as properties of keys, set to true
-      key.forEach( function( p ) { keys[ p ] = true } );
-      
-      var vl = values.length;
-      
-      for ( var i = -1; ++i < vl; ) {
-        var value = values[ i ];
-        
-        for ( var p in value ) {
-          keys[ p ] || value.hasOwnProperty( p ) && ( keys[ p ] = true );
-        }
-      }
-      
-      // Remove flow and _v attributes if added
-      delete keys[ 'flow' ];
-      delete keys[ '_v' ];
-      
-      columns = Object.keys( keys );
-    }
-    
-    return columns;
-  }, // _get_columns()
-  
-  /* ----------------------------------------------------------------------------------------------
      _add( values, options )
   */
   _add: function( values, options ) {
@@ -520,11 +463,25 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( ! connection ) return this._add_waiter( '_add', arguments );
     
-    var columns = this._get_columns( values );
+    var columns = []
+      , aliases = []
+    ;
+    
+    this._columns.forEach( function( column ) {
+      var as = column;
+      
+      if ( typeof column === 'object' ) {
+        as = column.as;
+        column = column.id;
+      }
+      
+      columns.push( column );
+      aliases.push( as );
+    } );
     
     if ( columns.length === 0 ) return emit(); // nothing
     
-    var bulk_values = make_bulk_insert_list( this._options.key, columns, values, emit_values );
+    var bulk_values = make_bulk_insert_list( this._options.key, aliases, values, emit_values );
     
     if ( typeof bulk_values !== 'string' ) { // this is an error object
       // ToDo: send error to error dataflow
@@ -718,7 +675,19 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // Build conditions based on key
     var where = ' WHERE'
       , i, j, value, a, v
+      , columns_aliases = {}
     ;
+    
+    this._columns.forEach( function( column ) {
+      var as = column;
+      
+      if ( typeof column == 'object' ) {
+        as = column.as;
+        column = column.id;
+      }
+      
+      columns_aliases[ as ] = column;
+    } );
     
     if ( kl > 1 ) {
       for ( i = -1; ++i < vl; ) {
@@ -736,7 +705,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             return emit_error( null_key_attribute_error( i, a, value ) );
           }
           
-          where += ( j ? ' AND ' : ' ' ) + connection.escapeId( a ) + ' = ' + connection.escape( v );
+          where += ( j ? ' AND ' : ' ' ) + connection.escapeId( columns_aliases[ a ] ) + ' = ' + connection.escape( v );
         }
         
         where += ' )';
@@ -744,7 +713,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     } else {
       a = key[ 0 ];
       
-      where += ' ' + connection.escapeId( a ) + ' IN (';
+      where += ' ' + connection.escapeId( columns_aliases[ a ] ) + ' IN (';
       
       for ( i = -1; ++i < vl; ) {
         value = values[ i ];
@@ -765,6 +734,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     ;
     
     de&&ug( this._get_name( '_remove' ) + 'sql:', sql );
+    
+    // ToDo: in an SQL transaction implemented in a stored procedure read before delete to verify that all deleted values exist
     
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( sql, function( error, results ) {
@@ -866,106 +837,13 @@ Pipelet.Compose( 'mysql', function( source, table, columns, options ) {
     .mysql_connections( { mysql: options.mysql } )
   ;
   
-  var mysql_columns = []
-    , input
-    , output
-    , need_alter = false
-    , mysql_aliases = {}
-    , attribute_aliases = {}
-  ;
-  
-  columns.forEach( get_alias );
-  
-  var alliased_key = options.key
-        .map( function( a ) {
-          return attribute_aliases[ a ] || a
-        } )
-    
-    , write_options = extend( {}, options, {
-        key: alliased_key,
-        columns: mysql_columns
-      } )
-    
-    , read_options = extend( {}, options, { columns: columns } )
-  ;
-  
   de&&ug( 'mysql(), options:', options );
   
-  if ( need_alter ) {
-    // At least one column is not a string, will need to alter
-    input = source.alter( alter_in, { no_clone : true } );
-    
-    output = input
-      .mysql_write( table, connections, write_options )
-      .alter( alter_out, { no_clone : true } )
-      .mysql_read ( table, connections, read_options  )
-    ;
-  } else {
-    input = source.mysql_write( table, connections, write_options );
-    output = input.mysql_read ( table, connections, read_options  );
-  }
+  var input  = source.mysql_write( table, columns, connections, { name: options.name + '_write', key: options.key } )
+    , output = input .mysql_read ( table, columns, connections, { name: options.name + '_read' , key: options.key } )
+  ;
   
   return rs.encapsulate( input, output, options );
-  
-  function get_alias( column ) {
-    var as = column;
-    
-    if ( typeof column == 'object' && column.as ) {
-      need_alter = true;
-      
-      as = column.as;
-      
-      column = column.id;
-    }
-    
-    mysql_columns.push( column );
-    
-    mysql_aliases[ column ] = as;
-    attribute_aliases[ as ] = column;
-  } // get_alias()
-  
-  function alter_in( value ) {
-    var v = {}, _v, ___;
-    
-    for ( var a in attribute_aliases ) {
-      _v = value[ a ];
-      
-      if ( _v !== ___ ) v[ attribute_aliases[ a ] ] = _v;
-    }
-    
-    return v;
-  } // alter_in()
-  
-  function alter_out( value ) {
-    if ( value.flow === 'error' ) {
-      // make shallow copy of value
-      value = rs.RS.extend._2( {}, value );
-      
-      // alter error values
-      if ( value.values ) {
-        value.values = value.values.map( alter );
-      }
-      
-      // alter error_value
-      if ( value.error_value ) {
-        value.error_value = alter( value.error_value );
-      }
-      
-      return value;
-    }
-    
-    return alter( value );
-    
-    function alter( value ) {
-      var v = {};
-      
-      for ( var a in mysql_aliases ) {
-        v[ mysql_aliases[ a ] ] = value[ a ] || null;
-      }
-      
-      return v;
-    }
-  } // alter_out()
 } ); // mysql()
 
 // toubkal_mysql.js
