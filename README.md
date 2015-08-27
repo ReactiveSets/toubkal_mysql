@@ -51,7 +51,7 @@ rs.mysql( 'test.users',
 
 ### Updating 'test.users' Table
 
-Updating users table only requires to connect a dataflow upstream of mysql - e.g. connecting authorized clients'
+Updating users table only requires to connect a dataflow upstream of mysql - e.g. connecting authorized clients
 upstream of mysql():
 ```javascript
 var rs = require( 'toubkal_mysql' );
@@ -87,7 +87,7 @@ The "root" account is defined in configuration file "~/config.rs.json", hiding c
     "mysql": {
       "host"    : "localhost",
       "user"    : "root",
-      "password": "<password for root account>"
+      "password": "\<password for root account\>"
     }
   }
 ]
@@ -96,8 +96,8 @@ The "root" account is defined in configuration file "~/config.rs.json", hiding c
 Where "mysql" object provides options for connecting to MySQL database. [All connection options are from "mysql"
 npm module](https://www.npmjs.com/package/mysql#connection-options).
 
-Many MySQL servers configuration can be defined in the same JSON configuration
-file by adding objects with a unique "id" assigned with the value "toubkal_mysql#<account name>".
+Many MySQL servers configurations can be defined simultaneously in the JSON configuration
+file by adding objects with a unique "id" assigned with the value "toubkal_mysql#\<account name\>".
 
 ## Reference
 
