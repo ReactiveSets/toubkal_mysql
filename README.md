@@ -14,8 +14,8 @@ Needs Travis CI testing
 $ npm install toubkal_mysql
 ```
 
-## Features:
-- Toubkal pipelet: get updates in real-time
+## Features
+- Toubkal pipelet: get updates in real-time, improves productivity
 - Hides MySQL credentials in JSON configuration file
 - Waits indefinitely for ready MySQL connection to process operations
 - Stateless, does not keep anything in memory, relies on MySQL cache
@@ -26,7 +26,7 @@ $ npm install toubkal_mysql
   - INSERT queries from upstream add opeations using "columns" parameter
 - Allows column name aliases
 - Allows to define value converters per column
-- Provides value converter from UUID to BINARY(16)
+- Provides value converter from UUID to BINARY(16) and Toubkal timestamps to TIMESTAMP(3)
 - Emits detailled errors in error dataflow for downstream error reporting and recovery by reverting
 failed operations
 
@@ -122,9 +122,11 @@ Parameters:
       A converter can be specified as a string for built-in converters or an Object:
       - (String): a built-in converter, supported converters are:
         - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
+        - "timestamp_t3": converts Toubkal timestamp into TIMESTAMP(3)
+          ([requires MySQL 5.6.4 and up](http://dev.mysql.com/doc/refman/5.6/en/fractional-seconds.html))
       - (Object): Providing the following functions:
         - parse     (Function): parse( value ) -> value to mysql driver
-        - serialize (Function): serialize( <value from mysql driver> ) -> value
+        - serialize (Function): serialize( \<mysql driver value\> ) -> value
 
 - options (Object): optional attributes:
   - connection (String): MySQL connection identifier in configuration file, default is "root"

@@ -24,20 +24,21 @@
 */
 'use strict';
 
-var mysql    = require( 'mysql' )
-  , rs       = require( 'toubkal' )
-  , RS       = rs.RS
-  , uuid     = RS.uuid
-  , Pipelet  = RS.Pipelet
-  , Greedy   = RS.Greedy
-  , Set      = RS.Set
-  , Query    = RS.Query
-  , extend   = RS.extend
-  , clone    = extend.clone
-  , log      = RS.log.bind( null, 'mysql' )
-  , de       = true
-  , ug       = de && log
-  , slice    = Array.prototype.slice
+var mysql            = require( 'mysql' )
+  , rs               = require( 'toubkal' )
+  , RS               = rs.RS
+  , uuid             = RS.uuid
+  , timestamp_string = RS.timestamp_string
+  , Pipelet          = RS.Pipelet
+  , Greedy           = RS.Greedy
+  , Set              = RS.Set
+  , Query            = RS.Query
+  , extend           = RS.extend
+  , clone            = extend.clone
+  , log              = RS.log.bind( null, 'mysql' )
+  , de               = true
+  , ug               = de && log
+  , slice            = Array.prototype.slice
 ;
 
 module.exports = rs; // re-exports rs which is the namespace for toubkal_mysql pipelets
@@ -112,23 +113,39 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
 /* ------------------------------------------------------------------------------------------------
    Converters
 */
-var converters = {
-  'uuid_b16': {
-    parse: function( id, connection ) {
-      return uuid.parse( id, new Buffer( 16 ) );
+var converters = ( function() {
+  var converters = {};
+  
+  return {
+    get: function( converter ) {
+      return typeof converter == 'string' ? converters[ converter ] : converter;
     },
     
-    serialize: function( id ) {
-      return uuid.unparse( id );
+    set: function( name, converter ) {
+      converters[ name ] = converter;
     }
-  } // uuid
-}; // converters
+  };
+} )(); // converters
 
-var Converters = {
-  get: function( converter ) {
-    return typeof converter == 'string' ? converters[ converter ] : converter;
+converters.set( 'uuid_b16', {
+  parse: function( id ) {
+    return uuid.parse( id, new Buffer( 16 ) );
+  },
+  
+  serialize: function( id ) {
+    return uuid.unparse( id );
   }
-} // Converters
+} ); // uuid_b16
+
+converters.set( 'timestamp_t3', {
+  parse: function( t ) {
+    return t;
+  },
+  
+  serialize: function( t ) {
+    return timestamp_string( t );
+  }
+} ); // 'timestamp_t3'
 
 /* ------------------------------------------------------------------------------------------------
    mysql_read( table, columns, connection, options )
@@ -301,7 +318,7 @@ MySQL_Read.Output = Greedy.Output.subclass(
           a = as || id;
           
           if ( converter ) {
-            converter = Converters.get( converter );
+            converter = converters.get( converter );
             
             parsers[ a ] = converter.parse;
             serializers.push( { id: a, serialize: converter.serialize } );
@@ -557,7 +574,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         converter = column.converter;
         column = id;
         
-        if ( converter ) parsers[ as ] = Converters.get( converter ).parse;
+        if ( converter ) parsers[ as ] = converters.get( converter ).parse;
       }
       
       columns.push( column );
@@ -779,7 +796,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         
         column = id;
         
-        if ( converter ) parsers[ as ] = Converters.get( converter ).parse;
+        if ( converter ) parsers[ as ] = converters.get( converter ).parse;
       }
       
       columns_aliases[ as ] = column;
