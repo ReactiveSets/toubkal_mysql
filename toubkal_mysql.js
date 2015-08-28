@@ -27,6 +27,7 @@
 var mysql    = require( 'mysql' )
   , rs       = require( 'toubkal' )
   , RS       = rs.RS
+  , uuid     = RS.uuid
   , Pipelet  = RS.Pipelet
   , Greedy   = RS.Greedy
   , Set      = RS.Set
@@ -109,11 +110,32 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
 } ); // mysql_connections()
 
 /* ------------------------------------------------------------------------------------------------
+   Converters
+*/
+var converters = {
+  'uuid_b16': {
+    parse: function( id, connection ) {
+      return uuid.parse( id, new Buffer( 16 ) );
+    },
+    
+    serialize: function( id ) {
+      return uuid.unparse( id );
+    }
+  } // uuid
+}; // converters
+
+var Converters = {
+  get: function( converter ) {
+    return typeof converter == 'string' ? converters[ converter ] : converter;
+  }
+} // Converters
+
+/* ------------------------------------------------------------------------------------------------
    mysql_read( table, columns, connection, options )
    
    Parameters:
    - table (String): mysql table name
-   - columns (Array of Columns): see mysql() for definition
+   - columns (Array of Columns): see mysql() for full definition of Column
    - connection (Pipelet): mysql_connections() output (will use the last added)
    - options (optional Object): optional attributes:
      - key (Array of Strings):  field names used to build WHERE clause for DELETE, may be aliased
@@ -198,6 +220,8 @@ MySQL_Read.Output = Greedy.Output.subclass(
         , where = ''
         , that = this
         , columns_aliases = []
+        , parsers = {}
+        , serializers = []
       ;
       
       columns = columns
@@ -205,7 +229,7 @@ MySQL_Read.Output = Greedy.Output.subclass(
         : '*'
       ;
       
-      if ( query ) where = where_from_query( query, mysql_connection, columns_aliases );
+      if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
       
       var sql = 'SELECT ' + columns + ' FROM ' + table + where;
       
@@ -220,6 +244,36 @@ MySQL_Read.Output = Greedy.Output.subclass(
           return;
         }
         
+        var s = serializers.length
+          , serialize
+          , column
+          , i
+          , result
+        ;
+        
+        // Loop through serializers first because the number of columns with serializers
+        // is expected to be much smaller on average than the number rows returned by SELECT.
+        // This allows to maximize the amount of time spent serializing columns in the inner
+        // loop.
+        // Also, the serializers loop has more code than the row loop which would be slower
+        // if it was the inner loop.
+        while ( s ) {
+          serialize = serializers[ --s ];
+          
+          column    = serialize.id;
+          serialize = serialize.serialize;
+          
+          de&&ug( name() + ', serialize column:', column, 'with:', serialize );
+          
+          i = results.length;
+          
+          while ( i ) {
+            result = results[ --i ];
+            
+            result[ column ] = serialize( result[ column ] );
+          } // while there are results
+        } // while there are serializers
+        
         if ( query ) {
           de&&ug( name() + ', results before query filter:', results.length );
           
@@ -232,19 +286,33 @@ MySQL_Read.Output = Greedy.Output.subclass(
       } )
       
       function column_to_sql( column ) {
-        var as = column;
+        var a = column
+          , id
+          , as
+          , converter
+        ;
         
         if ( typeof column === 'object' ) {
+          id = column.id;
           as = column.as;
-          column = column.id;
+          converter = column.converter;
           
+          column = id;
+          a = as || id;
+          
+          if ( converter ) {
+            converter = Converters.get( converter );
+            
+            parsers[ a ] = converter.parse;
+            serializers.push( { id: a, serialize: converter.serialize } );
+          }
         }
         
-        columns_aliases[ as ] = column;
+        columns_aliases[ a ] = column;
         
         column = mysql_connection.escapeId( column );
         
-        if ( as !== column ) {
+        if ( as ) {
           column += ' AS ' + mysql_connection.escapeId( as );
         }
         
@@ -258,7 +326,7 @@ MySQL_Read.Output = Greedy.Output.subclass(
   } // MySQL_Read.Output instance methods
 ); // MySQL_Read.Output
 
-function where_from_query( query, connection, columns_aliases ) {
+function where_from_query( query, connection, columns_aliases, parsers ) {
   var where = query
     .map( function( or_term ) {
       de&&ug( 'where_from_query(), or_term:', or_term );
@@ -266,7 +334,9 @@ function where_from_query( query, connection, columns_aliases ) {
       or_term = Object.keys( or_term )
         
         .map( function( property ) {
-          var value = or_term[ property ];
+          var value = or_term[ property ]
+            , parser
+          ;
           
           if ( property === 'flow' && value === 'error' ) {
             return false;
@@ -276,6 +346,9 @@ function where_from_query( query, connection, columns_aliases ) {
             case '[object Number]':
             case '[object String]':
               // scalar values where strict equality is desired
+              
+              if ( parser = parsers[ property ] ) value = parser( value );
+              
               // ToDo use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
             return connection.escapeId( columns_aliases[ property ] ) + ' = ' + connection.escape( value );
             
@@ -305,7 +378,14 @@ function where_from_query( query, connection, columns_aliases ) {
   function not_empty( v ) { return !!v }
   
   function translate_expression( connection, property, expression ) {
-    return false; // work in progress, don't translate to SQL for now
+    /*
+      This is work in progress, don't translate to SQL for now.
+      
+      The containing expression will therefore return more results than needed.
+      
+      Results will then be futher filtered by with the compiled query.
+    */
+    return false;
     
     var i = 0, sql = '';
     
@@ -361,7 +441,7 @@ Greedy.Build( 'mysql_read', MySQL_Read );
    
    Parameters:
    - table (String): mysql table name
-   - columns (Array of Columns): see mysql() for definition of Column
+   - columns (Array of Columns): see mysql() for full definition of Column
    - connection (Pipelet): mysql_connections() output (will use the last added)
    - options (optional Object): optional attributes:
      - key (Array of Strings): the set of fileds that uniquely define objects and used to build
@@ -465,14 +545,19 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     var columns = []
       , aliases = []
+      , parsers = {}
     ;
     
     this._columns.forEach( function( column ) {
-      var as = column;
+      var as = column, id, converter;
       
       if ( typeof column === 'object' ) {
-        as = column.as;
-        column = column.id;
+        id = column.id;
+        as = column.as || id;
+        converter = column.converter;
+        column = id;
+        
+        if ( converter ) parsers[ as ] = Converters.get( converter ).parse;
       }
       
       columns.push( column );
@@ -481,7 +566,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( columns.length === 0 ) return emit(); // nothing
     
-    var bulk_values = make_bulk_insert_list( this._options.key, aliases, values, emit_values );
+    var bulk_values = make_bulk_insert_list( this._options.key, aliases, parsers, values, emit_values );
     
     if ( typeof bulk_values !== 'string' ) { // this is an error object
       // ToDo: send error to error dataflow
@@ -588,7 +673,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
          String: bulk_values
          Object: error
     */
-    function make_bulk_insert_list( key, columns, values, emit_values ) {
+    function make_bulk_insert_list( key, columns, parsers, values, emit_values ) {
       var bulk_values = '\nVALUES'
         , vl = values.length
         , cl = columns.length
@@ -597,7 +682,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       for ( var i = -1; ++i < vl; ) {
         var value = values[ i ]
           , emit_value = emit_values[ i ] = {}
-          , c, v
+          , c, v, parser
         ;
         
         bulk_values += ( i ? ',\n  ' : '\n  ' );
@@ -615,7 +700,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             v = null;
           }
           
-          bulk_values += ( j ? ', ' : '( ' ) + connection.escape( emit_value[ c ] = v );
+          emit_value[ c ] = v;
+          
+          if ( parser = parsers[ c ] ) v = parser( v );
+          
+          bulk_values += ( j ? ', ' : '( ' ) + connection.escape( v );
         }
         
         bulk_values += ' )';
@@ -674,16 +763,23 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     // Build conditions based on key
     var where = ' WHERE'
-      , i, j, value, a, v
       , columns_aliases = {}
+      , parsers = {}
+      , i, j, value, a, v, parser
     ;
     
     this._columns.forEach( function( column ) {
-      var as = column;
+      var as = column, id, converter;
       
       if ( typeof column == 'object' ) {
-        as = column.as;
-        column = column.id;
+        id = column.id;
+        converter = column.converter;
+        
+        as = column.as || id;
+        
+        column = id;
+        
+        if ( converter ) parsers[ as ] = Converters.get( converter ).parse;
       }
       
       columns_aliases[ as ] = column;
@@ -705,7 +801,12 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             return emit_error( null_key_attribute_error( i, a, value ) );
           }
           
-          where += ( j ? ' AND ' : ' ' ) + connection.escapeId( columns_aliases[ a ] ) + ' = ' + connection.escape( v );
+          if ( parser = parsers[ a ] ) v = parser( v );
+          
+          where += ( j ? ' AND ' : ' ' )
+            + connection.escapeId( columns_aliases[ a ] )
+            + ' = ' + connection.escape( v )
+          ;
         }
         
         where += ' )';
@@ -715,6 +816,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       where += ' ' + connection.escapeId( columns_aliases[ a ] ) + ' IN (';
       
+      parser = parsers[ a ];
+      
       for ( i = -1; ++i < vl; ) {
         value = values[ i ];
         v = value[ a ];
@@ -722,6 +825,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         if ( v === null || v === undefined ) {
           return emit_error( null_key_attribute_error( i, a, value ) );
         }
+        
+        if ( parser ) v = parser( v );
         
         where += ( i ? ', ' : ' ' ) + connection.escape( v );
       }
@@ -816,9 +921,23 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
    - columns (Array): defines all columns used for SELECT and INSERT, including primary key.
      Each column is defined as:
      - (String): column name
-     - (Object):
-       - id: MySQL column name
-       - as: dataflow attribute name, default is id
+     
+     - (Object): all attributes are optional except "id":
+       - id (String): MySQL column name
+       
+       - as (String): dataflow attribute name, default is the value of "id"
+       
+       - converter: to convert values of this column to/from mysql driver types. For
+         more information on further mysql driver type convertions with MySQL types see
+         https://www.npmjs.com/package/mysql#type-casting.
+         
+         A converter can be specified as a string for built-in converters or an Object:
+         - (String): a built-in converter, supported converters are:
+           - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
+         
+         - (Object): Providing the following functions:
+           - parse     (Function): parse( value ) -> value to mysql driver
+           - serialize (Function): serialize( <value from mysql driver> ) -> value
    
    - options (Object): optional attributes:
      - connection (String): id of connection in configuration file, default is 'root'

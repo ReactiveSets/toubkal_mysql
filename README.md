@@ -25,6 +25,8 @@ $ npm install toubkal_mysql
   - DELETE queries from upstream remove operations using "key" option
   - INSERT queries from upstream add opeations using "columns" parameter
 - Allows column name aliases
+- Allows to define value converters per column
+- Provides value converter from UUID to BINARY(16)
 - Emits detailled errors in error dataflow for downstream error reporting and recovery by reverting
 failed operations
 
@@ -114,6 +116,16 @@ Parameters:
   - (Object):
     - id: MySQL column name
     - as: dataflow attribute name, default is id
+    - converter: to convert values of this column to/from mysql driver types. For
+      more information on further mysql driver type convertions with MySQL types see
+      [Type casting](https://www.npmjs.com/package/mysql#type-casting).
+      A converter can be specified as a string for built-in converters or an Object:
+      - (String): a built-in converter, supported converters are:
+        - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
+      - (Object): Providing the following functions:
+        - parse     (Function): parse( value ) -> value to mysql driver
+        - serialize (Function): serialize( <value from mysql driver> ) -> value
+
 - options (Object): optional attributes:
   - connection (String): MySQL connection identifier in configuration file, default is "root"
   - configuration (String): filename of configuration file, default is "~/config.rs.json"
