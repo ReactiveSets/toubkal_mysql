@@ -1,8 +1,8 @@
 [
   {
-    "id"      : "toubkal_mysql#admin",
+    "id"      : "toubkal_mysql#root",
     "module"  : "toubkal_mysql",
-    "name"    : "admin",
+    "name"    : "root",
 
     "mysql": {
       "host"    : "localhost",
