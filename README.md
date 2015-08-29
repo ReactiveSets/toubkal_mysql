@@ -1,9 +1,8 @@
 # MySQL Pipelets for [Toubkal](https://github.com/ReactiveSets/toubkal)
 
-Not yet published to npm
-
-[![NPM version](https://badge.fury.io/js/toubkal_mysql.png)](http://badge.fury.io/js/toubkal_mysql)
 [![Build Status](https://travis-ci.org/ReactiveSets/toubkal_mysql.svg?branch=master)](https://travis-ci.org/ReactiveSets/toubkal_mysql)
+
+[![npm version](https://badge.fury.io/js/toubkal_mysql.svg)](http://badge.fury.io/js/toubkal_mysql)
 
 API Stability: Unstable (API is under active development)
 
