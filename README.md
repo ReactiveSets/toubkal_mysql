@@ -4,9 +4,7 @@ Not yet published to npm
 
 [![NPM version](https://badge.fury.io/js/toubkal_mysql.png)](http://badge.fury.io/js/toubkal_mysql)
 
-API Stability: Unstable, this API is under development
-
-Needs Travis CI testing
+API Stability: Unstable (API is under active development)
 
 ## Install
 

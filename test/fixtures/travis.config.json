@@ -1,0 +1,13 @@
+[
+  {
+    "id"      : "toubkal_mysql#admin",
+    "module"  : "toubkal_mysql",
+    "name"    : "admin",
+
+    "mysql": {
+      "host"    : "localhost",
+      "user"    : "root",
+      "password": ""
+    }
+  }
+]

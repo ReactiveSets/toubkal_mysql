@@ -1,24 +1,41 @@
 {
   "name": "toubkal_mysql",
+
   "version": "0.1.1",
+
   "description": "MySQL pipelets for ReactiveSets/toukbal",
+
   "main": "toubkal_mysql.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node server.js"
-  },
+
   "repository": {
     "type": "git",
     "url": "git://github.com/ReactiveSets/toubkal_mysql.git"
   },
-  "author": "",
+
+  "author": "Reactive Sets",
+
   "license": "MIT",
+
   "bugs": {
     "url": "https://github.com/ReactiveSets/toubkal_mysql/issues"
   },
+
   "dependencies": {
     "undefine" : "0.2.6",
     "toubkal"  : "latest",
     "mysql"    : "2.8.0"
+  },
+
+  "devDependencies": {
+    "coffee-script"         : "1.7.1",
+    "source-map-support"    : "0.3.2",
+    "mocha"                 : "1.18.2",
+    "expect.js"             : "0.3.1",
+    "mocha-unfunk-reporter" : "0.4.0"
+  },
+
+  "scripts": {
+    "postinstall": "ln -s ../. node_modules/toubkal_mysql || true",
+    "test"       : "sh test/bin/tests.sh"
   }
 }
