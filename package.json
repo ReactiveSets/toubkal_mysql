@@ -21,7 +21,6 @@
   },
 
   "dependencies": {
-    "undefine" : "0.2.6",
     "toubkal"  : "latest",
     "mysql"    : "2.8.0"
   },
@@ -37,5 +36,12 @@
   "scripts": {
     "postinstall": "ln -s ../. node_modules/toubkal_mysql || true",
     "test"       : "sh test/bin/tests.sh"
-  }
+  },
+
+  "keywords": [
+    "mysql",
+    "reactive",
+    "dataflow",
+    "functional reactive programming"
+  ]
 }
