@@ -143,7 +143,7 @@ converters.set( 'timestamp_t3', {
   },
   
   serialize: function( t ) {
-    return timestamp_string( t );
+    return timestamp_string( new Date( t ) );
   }
 } ); // 'timestamp_t3'
 
