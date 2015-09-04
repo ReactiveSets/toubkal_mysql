@@ -783,6 +783,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       , columns_aliases = {}
       , parsers = {}
       , i, j, value, a, v, parser
+      , that = this
     ;
     
     this._columns.forEach( function( column ) {
@@ -800,6 +801,21 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       }
       
       columns_aliases[ as ] = column;
+    } );
+    
+    var escaped_key = key.map( function( a ) {
+      var column = columns_aliases[ a ];
+      
+      if ( column ) return connection.escapeId( column );
+      
+      throw new Error(
+          'key attribute "' + a + '" is not defined in columns (after optional aliasing).'
+        + '\n\nIf a column has an alias (the "as" attribute) and is part of key, the alias is the name of the attribute that should be part of key.'
+        + '\n\nkey: [ ' + key.join( ', ' ) + ' ]'
+        + '\n\nColumns: ' + JSON.stringify( that._columns, null, ' ' )
+        + '\n\nAliased columns: ' + JSON.stringify( columns_aliases, null, ' ' )
+        + '\n'
+      );
     } );
     
     if ( kl > 1 ) {
@@ -821,7 +837,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           if ( parser = parsers[ a ] ) v = parser( v );
           
           where += ( j ? ' AND ' : ' ' )
-            + connection.escapeId( columns_aliases[ a ] )
+            + escaped_key[ j ]
             + ' = ' + connection.escape( v )
           ;
         }
@@ -829,9 +845,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         where += ' )';
       }
     } else {
-      a = key[ 0 ];
+      where += ' ' + escaped_key[ 0 ] + ' IN (';
       
-      where += ' ' + connection.escapeId( columns_aliases[ a ] ) + ' IN (';
+      a = key[ 0 ];
       
       parser = parsers[ a ];
       
