@@ -583,24 +583,23 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   */
   _add: function( values, options ) {
     var that = this
+      , name = de && this._get_name( '_add' )
       , emit_values = []
     ;
     
     if ( values.length === 0 ) return emit(); // nothing
     
-    var connection = this._mysql_connection
-      , name
-    ;
+    var connection = this._mysql_connection;
     
     if ( ! connection ) return this._add_waiter( '_add', arguments );
     
+    var column_ids = this._column_ids;
+    
+    if ( column_ids.length === 0 ) return emit(); // nothing
+    
     // ToDo: handle transactions in options._t.id
     
-    var columns = this._column_ids;
-    
-    if ( columns.length === 0 ) return emit(); // nothing
-    
-    var bulk_values = make_bulk_insert_list( this._options.key, this._aliases, this._parsers, values, emit_values );
+    var bulk_values = make_bulk_insert_list( values, emit_values );
     
     if ( typeof bulk_values !== 'string' ) { // this is an error object
       // ToDo: send error to error dataflow
@@ -609,13 +608,12 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       return this;
     }
     
-    columns = '\n\n    ( ' + columns.map( connection.escapeId ).join( ', ' ) + ' )';
-    
     var table = connection.escapeId( this._table )
+      , columns = '\n\n    ( ' + column_ids.map( escape_id ).join( ', ' ) + ' )'
       , sql = 'INSERT ' + table + columns + bulk_values
     ;
     
-    de&&ug( this._get_name( '_add' ) + 'sql:\n\n  ' + sql + '\n' );
+    de&&ug( name + 'sql:\n\n  ' + sql + '\n' );
     
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( sql, function( error, results ) {
@@ -683,7 +681,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         return;
       }
       
-      de&&ug( get_name() + 'inserted rows:', results.affectedRows );
+      // ToDo: if results.affectedRows != values.length, we have a problem
+      de&&ug( name + 'inserted rows:', results.affectedRows );
       
       emit(); // valid values
     } )
@@ -691,7 +690,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     return this;
     
     /* --------------------------------------------------------------------------------------------
-       make_bulk_insert_list( key, columns, values, emit_values )
+       make_bulk_insert_list( values, emit_values )
        
        Make bulk insert list and make emit values, limited to actual columns.
        
@@ -707,8 +706,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
          String: bulk_values
          Object: error
     */
-    function make_bulk_insert_list( key, columns, parsers, values, emit_values ) {
-      var bulk_values = '\n\n  VALUES\n'
+    function make_bulk_insert_list( values, emit_values ) {
+      var key     = that._options.key
+        , columns = that._aliases
+        , parsers = that._parsers
+        , bulk_values = '\n\n  VALUES\n'
         , vl = values.length
         , cl = columns.length
       ;
@@ -747,6 +749,10 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       return bulk_values;
     } // make_bulk_insert_list()
     
+    function escape_id( id ) {
+      return connection.escapeId( id );
+    }
+    
     function emit() {
       return that.__emit_add( emit_values, options );
     } // emit()
@@ -769,10 +775,6 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       return that.__emit_add( [ error ], options );
     } // emit_error()
-    
-    function get_name() {
-      return name || ( name = that._get_name( '_add' ) );
-    } // get_name()
   }, // _add()
   
   /* ----------------------------------------------------------------------------------------------
@@ -788,7 +790,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( vl === 0 || kl === 0 ) return emit();
     
-    var that = this, name;
+    var that = this
+      , name = de && this._get_name( '_remove' )
+    ;
     
     var connection = this._mysql_connection;
     
@@ -824,7 +828,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       for ( i = -1; ++i < vl; ) {
         value = values[ i ];
         
-        if ( i > 0 ) where += ' OR';
+        if ( i > 0 ) where += '\n     OR';
         
         where += ' (';
         
@@ -838,7 +842,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           
           if ( parser = parsers[ a ] ) v = parser( v );
           
-          where += ( j ? '\n    AND ' : ' ' )
+          where += ( j ? ' AND ' : ' ' )
             + escaped_key[ j ]
             + ' = ' + connection.escape( v )
           ;
@@ -873,7 +877,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       , sql = 'DELETE FROM ' + table + where
     ;
     
-    de&&ug( this._get_name( '_remove' ) + 'sql:\n\n  ' + sql + '\n' );
+    de&&ug( name + 'sql:\n\n  ' + sql + '\n' );
     
     // ToDo: in an SQL transaction implemented in a stored procedure read before delete to verify that all deleted values exist
     
@@ -910,7 +914,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       emit_values = values;
       
-      de&&ug( get_name() + 'deleted rows:', results.affectedRows );
+      // ToDo: if results.affectedRows != values.length, we have a problem
+      de&&ug( name + 'deleted rows:', results.affectedRows );
       
       emit(); // valid values
     } )
@@ -939,10 +944,6 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       return that.__emit_add( [ error ], options );
     } // emit_error()
-    
-    function get_name() {
-      return name || ( name = that._get_name( '_remove' ) );
-    } // get_name()
   } // _remove()
 } } ); // mysql_write()
 
