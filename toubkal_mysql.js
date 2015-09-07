@@ -63,6 +63,9 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
       
       connection = clone( connection );
       
+      // Transactions are connection-based, shared by all pipelets sharing the same connection
+      connection.transactions = {};
+      
       connection.mysql = extend( {}, this._options.mysql, connection.mysql );
       
       var mysql_connection = mysql.createConnection( connection.mysql );
@@ -97,6 +100,8 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
       
       if ( i != -1 ) {
         connection = this.a[ i ];
+        
+        // ToDo: handle transactions, either by terminating them now or waiting some time for them to terminate
         
         connection.mysql_connection && connection.mysql_connection.destroy();
         
@@ -465,12 +470,19 @@ Greedy.Build( 'mysql_read', MySQL_Read );
        a WHERE clause for DELETE queries. May be aliased by columns
 */
 function MySQL_Write( table, columns, connection, options ) {
-  var that = this;
-  
-  this._table = table;
-  this._columns = columns;
+  this._table            = table;
+  this._columns          = columns;
   this._mysql_connection = null;
-  this._waiters = [];
+  this._waiters          = [];
+  
+  var column_ids      = this._column_ids      = []
+    , aliases         = this._aliases         = []
+    , columns_aliases = this._columns_aliases = {}
+    , parsers         = this._parsers         = {}
+    , that = this
+  ;
+  
+  columns.forEach( add_column );
   
   connection
     .greedy()
@@ -480,6 +492,27 @@ function MySQL_Write( table, columns, connection, options ) {
   ;
   
   Greedy.call( this, options );
+  
+  // return this; // if called with new
+  // return undefined; // if called without new
+  
+  function add_column( column ) {
+    var as = column, id, converter;
+    
+    if ( typeof column === 'object' ) {
+      id = column.id;
+      as = column.as || id;
+      converter = column.converter;
+      column = id;
+      
+      if ( converter ) parsers[ as ] = converters.get( converter ).parse;
+    }
+    
+    column_ids.push( column );
+    aliases   .push( as     );
+    
+    columns_aliases[ as ] = column;
+  } // add_column()
   
   function add_connection( connections ) {
     var l = connections.length;
@@ -561,30 +594,13 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( ! connection ) return this._add_waiter( '_add', arguments );
     
-    var columns = []
-      , aliases = []
-      , parsers = {}
-    ;
+    // ToDo: handle transactions in options._t.id
     
-    this._columns.forEach( function( column ) {
-      var as = column, id, converter;
-      
-      if ( typeof column === 'object' ) {
-        id = column.id;
-        as = column.as || id;
-        converter = column.converter;
-        column = id;
-        
-        if ( converter ) parsers[ as ] = converters.get( converter ).parse;
-      }
-      
-      columns.push( column );
-      aliases.push( as );
-    } );
+    var columns = this._column_ids;
     
     if ( columns.length === 0 ) return emit(); // nothing
     
-    var bulk_values = make_bulk_insert_list( this._options.key, aliases, parsers, values, emit_values );
+    var bulk_values = make_bulk_insert_list( this._options.key, this._aliases, this._parsers, values, emit_values );
     
     if ( typeof bulk_values !== 'string' ) { // this is an error object
       // ToDo: send error to error dataflow
@@ -763,7 +779,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
      _remove( values, options )
   */
   _remove: function( values, options ) {
-    var emit_values = []
+    var that = this
+      , emit_values = []
       , vl = values.length
       , key = this._options.key
       , kl = key.length
@@ -777,32 +794,16 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( ! connection ) return this._add_waiter( '_remove', arguments );
     
+    // ToDo: handle transactions
+    
     // DELETE FROM table WHERE conditions
     
-    // Build conditions based on key
+    // Build WHERE conditions based on key
     var where = '\n\n  WHERE'
-      , columns_aliases = {}
-      , parsers = {}
+      , columns_aliases = this._columns_aliases
+      , parsers = this._parsers
       , i, j, value, a, v, parser
-      , that = this
     ;
-    
-    this._columns.forEach( function( column ) {
-      var as = column, id, converter;
-      
-      if ( typeof column == 'object' ) {
-        id = column.id;
-        converter = column.converter;
-        
-        as = column.as || id;
-        
-        column = id;
-        
-        if ( converter ) parsers[ as ] = converters.get( converter ).parse;
-      }
-      
-      columns_aliases[ as ] = column;
-    } );
     
     var escaped_key = key.map( function( a ) {
       var column = columns_aliases[ a ];
