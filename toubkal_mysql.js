@@ -242,15 +242,15 @@ MySQL_Read.Output = Greedy.Output.subclass(
       ;
       
       columns = columns
-        ? columns.map( column_to_sql ).join( ', ' )
+        ? columns.map( column_to_sql ).join( '\n       , ' )
         : '*'
       ;
       
       if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
       
-      var sql = 'SELECT ' + columns + ' FROM ' + table + where;
+      var sql = '  SELECT ' + columns + '\n\n  FROM ' + table + where;
       
-      de&&ug( name() + ', sql:', sql, typeof receiver, query );
+      de&&ug( name() + ', sql:\n\n' + sql + '\n' );
       
       mysql_connection.query( sql, function( error, results, fields ) {
         if ( error ) {
@@ -387,10 +387,10 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
     
     .filter( not_empty )
     
-    .join( ') OR (' )
+    .join( ' )\n     OR ( ' )
   ;
   
-  return where ? ' WHERE ( ' + where + ' )' : '';
+  return where ? '\n\n  WHERE ( ' + where + ' )' : '';
   
   function not_empty( v ) { return !!v }
   
@@ -549,13 +549,14 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
      _add( values, options )
   */
   _add: function( values, options ) {
-    var emit_values = [];
+    var that = this
+      , emit_values = []
+    ;
     
     if ( values.length === 0 ) return emit(); // nothing
     
-    var that = this
+    var connection = this._mysql_connection
       , name
-      , connection = this._mysql_connection
     ;
     
     if ( ! connection ) return this._add_waiter( '_add', arguments );
@@ -592,13 +593,13 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       return this;
     }
     
-    columns = '\n  (' + columns.map( connection.escapeId ).join( ', ' ) + ')';
+    columns = '\n\n    ( ' + columns.map( connection.escapeId ).join( ', ' ) + ' )';
     
     var table = connection.escapeId( this._table )
       , sql = 'INSERT ' + table + columns + bulk_values
     ;
     
-    de&&ug( this._get_name( '_add' ) + 'sql:', sql );
+    de&&ug( this._get_name( '_add' ) + 'sql:\n\n  ' + sql + '\n' );
     
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( sql, function( error, results ) {
@@ -691,7 +692,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
          Object: error
     */
     function make_bulk_insert_list( key, columns, parsers, values, emit_values ) {
-      var bulk_values = '\nVALUES'
+      var bulk_values = '\n\n  VALUES\n'
         , vl = values.length
         , cl = columns.length
       ;
@@ -702,7 +703,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           , c, v, parser
         ;
         
-        bulk_values += ( i ? ',\n  ' : '\n  ' );
+        bulk_values += ( i ? ',\n    ' : '\n    ' );
         
         for ( var j = -1; ++j < cl; ) {
           c = columns[ j ];
@@ -779,7 +780,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // DELETE FROM table WHERE conditions
     
     // Build conditions based on key
-    var where = ' WHERE'
+    var where = '\n\n  WHERE'
       , columns_aliases = {}
       , parsers = {}
       , i, j, value, a, v, parser
@@ -836,7 +837,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           
           if ( parser = parsers[ a ] ) v = parser( v );
           
-          where += ( j ? ' AND ' : ' ' )
+          where += ( j ? '\n    AND ' : ' ' )
             + escaped_key[ j ]
             + ' = ' + connection.escape( v )
           ;
@@ -871,7 +872,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       , sql = 'DELETE FROM ' + table + where
     ;
     
-    de&&ug( this._get_name( '_remove' ) + 'sql:', sql );
+    de&&ug( this._get_name( '_remove' ) + 'sql:\n\n  ' + sql + '\n' );
     
     // ToDo: in an SQL transaction implemented in a stored procedure read before delete to verify that all deleted values exist
     
