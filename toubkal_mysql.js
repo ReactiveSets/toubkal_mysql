@@ -786,15 +786,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       , vl = values.length
       , key = this._options.key
       , kl = key.length
-    ;
-    
-    if ( vl === 0 || kl === 0 ) return emit();
-    
-    var that = this
       , name = de && this._get_name( '_remove' )
+      , connection = this._mysql_connection
     ;
     
-    var connection = this._mysql_connection;
+    if ( vl === 0 || kl === 0 ) return emit(); // propagate options
     
     if ( ! connection ) return this._add_waiter( '_remove', arguments );
     
@@ -803,77 +799,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // DELETE FROM table WHERE conditions
     
     // Build WHERE conditions based on key
-    var where = '\n\n  WHERE'
-      , columns_aliases = this._columns_aliases
-      , parsers = this._parsers
-      , i, j, value, a, v, parser
-    ;
-    
-    var escaped_key = key.map( function( a ) {
-      var column = columns_aliases[ a ];
-      
-      if ( column ) return connection.escapeId( column );
-      
-      throw new Error(
-          'key attribute "' + a + '" is not defined in columns (after optional aliasing).'
-        + '\n\nIf a column has an alias (the "as" attribute) and is part of key, the alias is the name of the attribute that should be part of key.'
-        + '\n\nkey: [ ' + key.join( ', ' ) + ' ]'
-        + '\n\nColumns: ' + JSON.stringify( that._columns, null, ' ' )
-        + '\n\nAliased columns: ' + JSON.stringify( columns_aliases, null, ' ' )
-        + '\n'
-      );
-    } );
-    
-    if ( kl > 1 ) {
-      for ( i = -1; ++i < vl; ) {
-        value = values[ i ];
-        
-        if ( i > 0 ) where += '\n     OR';
-        
-        where += ' (';
-        
-        for ( j = -1; ++j < kl; ) {
-          a = key[ j ];
-          v = value[ a ];
-          
-          if ( v === null || v === undefined ) {
-            return emit_error( null_key_attribute_error( i, a, value ) );
-          }
-          
-          if ( parser = parsers[ a ] ) v = parser( v );
-          
-          where += ( j ? ' AND ' : ' ' )
-            + escaped_key[ j ]
-            + ' = ' + connection.escape( v )
-          ;
-        }
-        
-        where += ' )';
-      }
-    } else {
-      where += ' ' + escaped_key[ 0 ] + ' IN (';
-      
-      a = key[ 0 ];
-      
-      parser = parsers[ a ];
-      
-      for ( i = -1; ++i < vl; ) {
-        value = values[ i ];
-        v = value[ a ];
-        
-        if ( v === null || v === undefined ) {
-          return emit_error( null_key_attribute_error( i, a, value ) );
-        }
-        
-        if ( parser ) v = parser( v );
-        
-        where += ( i ? ', ' : ' ' ) + connection.escape( v );
-      }
-      
-      where += ' )';
-    }
-    
-    var table = connection.escapeId( this._table )
+    var escaped_key = key.map( get_escape_column( this, connection ) )
+      , where = make_where( this, connection, escaped_key )
+      , table = connection.escapeId( this._table )
       , sql = 'DELETE FROM ' + table + where
     ;
     
@@ -922,6 +850,85 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     return this;
     
+    function get_escape_column( that, connection ) {
+      var columns_aliases = that._columns_aliases;
+      
+      return escape_column;
+      
+      function escape_column( a ) {
+        var column = columns_aliases[ a ];
+        
+        if ( column ) return connection.escapeId( column );
+        
+        throw new Error(
+            'key attribute "' + a + '" is not defined in columns (after optional aliasing).'
+          + '\n\n  If a column has an alias (the "as" attribute) and is part of key, the alias is the name of the attribute that should be part of key.'
+          + '\n\n  key: [ ' + key.join( ', ' ) + ' ]'
+          + '\n\n  Columns: ' + JSON.stringify( that._columns, null, ' ' )
+          + '\n\n  Aliased columns: ' + JSON.stringify( columns_aliases, null, ' ' )
+          + '\n'
+        );
+      } // escape_column()
+    } // get_escape_column()
+    
+    function make_where( that, connection, escaped_key ) {
+      var where = '\n\n  WHERE'
+        , parsers = that._parsers
+        , i, j, value, a, v, parser
+      ;
+      
+      if ( kl > 1 ) {
+        for ( i = -1; ++i < vl; ) {
+          value = values[ i ];
+          
+          if ( i > 0 ) where += '\n     OR';
+          
+          where += ' (';
+          
+          for ( j = -1; ++j < kl; ) {
+            a = key[ j ];
+            v = value[ a ];
+            
+            if ( v === null || v === undefined ) {
+              return emit_error( null_key_attribute_error( i, a, value ) );
+            }
+            
+            if ( parser = parsers[ a ] ) v = parser( v );
+            
+            where += ( j ? ' AND ' : ' ' )
+              + escaped_key[ j ]
+              + ' = ' + connection.escape( v )
+            ;
+          }
+          
+          where += ' )';
+        }
+      } else {
+        where += ' ' + escaped_key[ 0 ] + ' IN (';
+        
+        a = key[ 0 ];
+        
+        parser = parsers[ a ];
+        
+        for ( i = -1; ++i < vl; ) {
+          value = values[ i ];
+          v = value[ a ];
+          
+          if ( v === null || v === undefined ) {
+            return emit_error( null_key_attribute_error( i, a, value ) );
+          }
+          
+          if ( parser ) v = parser( v );
+          
+          where += ( i ? ', ' : ' ' ) + connection.escape( v );
+        }
+        
+        where += ' )';
+      }
+      
+      return where;
+    } // make_where()
+    
     function emit() {
       return that.__emit_remove( emit_values, options );
     } // emit()
@@ -944,6 +951,10 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       return that.__emit_add( [ error ], options );
     } // emit_error()
+    
+    function get_name() {
+      that._get_name( '_remove' )
+    } // get_name()
   } // _remove()
 } } ); // mysql_write()
 
