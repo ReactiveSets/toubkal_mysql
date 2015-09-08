@@ -82,6 +82,8 @@ describe 'mysql()', ->
         }
       )
     
+    joe = null
+    
     it 'should be a Pipelet', ->
       expect( mysql_users ).to.be.a RS.Pipelet
     
@@ -99,5 +101,15 @@ describe 'mysql()', ->
       mysql_users._fetch_all ( _users ) ->
         check done, () ->
           expect( _users.length ).to.be.eql 1
-          expect( _users ).to.be.eql users._fetch_all()
           
+          joe = _users[ 0 ]
+          
+          expect( _users ).to.be.eql users._fetch_all()
+    
+    it 'should allow to remove previously added user', ( done ) ->
+      input._remove [ joe ]
+      
+      mysql_users._fetch_all ( _users ) ->
+        check done, () ->
+          expect( _users.length ).to.be.eql 0
+    
