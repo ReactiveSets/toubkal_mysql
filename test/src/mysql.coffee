@@ -75,10 +75,10 @@ describe 'mysql()', ->
         ]
         
         {
-          configuration: './' +
+          configuration:
             if process.env.TRAVIS
-            then 'test/fixtures/travis.config.json'
-            else '../config.rs.json'
+            then './test/fixtures/travis.config.json'
+            else null
         }
       )
     
@@ -101,15 +101,31 @@ describe 'mysql()', ->
       mysql_users._fetch_all ( _users ) ->
         check done, () ->
           expect( _users.length ).to.be.eql 1
-          
           joe = _users[ 0 ]
-          
           expect( _users ).to.be.eql users._fetch_all()
     
+    it 'should allow to fetch a single user using a query', ( done ) ->
+      fetched = ( _users ) ->
+        check done, () ->
+          expect( _users.length ).to.be.eql 1
+          expect( _users ).to.be.eql users._fetch_all()
+      
+      mysql_users._output._fetch fetched, [ { login: 'joe' } ]
+    
+    it 'should throw an Error when querying a column not defined in schema', ( done ) ->
+      fetched = ( _users ) ->
+        expect( _users.length ).to.be.eql 1
+        expect( _users ).to.be.eql users._fetch_all()
+      
+      fetch = () ->
+        mysql_users._output._fetch fetched, [ { _login: 'joe' } ]
+      
+      expect( fetch ).to.throwException()
+      done()
+      
     it 'should allow to remove previously added user', ( done ) ->
       input._remove [ joe ]
       
       mysql_users._fetch_all ( _users ) ->
         check done, () ->
           expect( _users.length ).to.be.eql 0
-    

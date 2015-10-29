@@ -246,10 +246,8 @@ MySQL_Read.Output = Greedy.Output.subclass(
         , serializers = []
       ;
       
-      columns = columns
-        ? columns.map( column_to_sql ).join( '\n       , ' )
-        : '*'
-      ;
+      // Get columns string and fill-up columns_aliases[]
+      columns = columns.map( column_to_sql ).join( '\n       , ' );
       
       if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
       
@@ -371,8 +369,12 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
               
               if ( parser = parsers[ property ] ) value = parser( value );
               
-              // ToDo use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
-            return connection.escapeId( columns_aliases[ property ] ) + ' = ' + connection.escape( value );
+              var alias = columns_aliases[ property ];
+              
+              if ( ! alias ) throw new Error( 'where_from_query() error, column from query not defined in schema: ' + property );
+              
+              // ToDo: use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
+            return connection.escapeId( alias ) + ' = ' + connection.escape( value );
             
             case '[object Array]': // expression
             return translate_expression( connection, property, value );
