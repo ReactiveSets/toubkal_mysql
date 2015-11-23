@@ -958,6 +958,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       that._get_name( '_remove' )
     } // get_name()
   } // _remove()
+  
+  // ToDo: implement _update()
 } } ); // mysql_write()
 
 /* ------------------------------------------------------------------------------------------------

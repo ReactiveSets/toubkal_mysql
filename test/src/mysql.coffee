@@ -51,40 +51,43 @@ describe 'mysql()', ->
   console.log 'describe'
   
   describe 'mysql( user, connection )', ->
-    input = rs.events_metadata() # add id as uuid_v4 and timestamp
-    
-    users = input
-      .alter( ( ( user ) -> return {
-        id         : user.id
-        email      : user.email
-        login      : user.login
-        create_time: user.timestamp
-      } ), { no_clone: true } )
-      
-      .set []
-    
-    mysql_users = users
-      .mysql(
-        'toubkal_unit_tests.user'
-      
-        [
-          { id: 'id', converter: 'uuid_b16' }
-          'email'
-          'login'
-          'create_time'
-        ]
-        
-        {
-          configuration:
-            if process.env.TRAVIS
-            then './test/fixtures/travis.config.json'
-            else null
-        }
-      )
-    
-    joe = null
+    input       = null
+    users       = null
+    mysql_users = null
+    joe         = null
     
     it 'should be a Pipelet', ->
+      input = rs.events_metadata() # add id as uuid_v4 and timestamp
+      
+      users = input
+        .map( ( ( user ) -> return {
+          id         : user.id
+          email      : user.email
+          login      : user.login
+          create_time: user.timestamp
+        } ) )
+        
+        .set []
+      
+      mysql_users = users
+        .mysql(
+          'toubkal_unit_tests.user'
+        
+          [
+            { id: 'id', converter: 'uuid_b16' }
+            'email'
+            'login'
+            'create_time'
+          ]
+          
+          {
+            configuration:
+              if process.env.TRAVIS
+              then './test/fixtures/travis.config.json'
+              else null
+          }
+        )
+      
       expect( mysql_users ).to.be.a RS.Pipelet
     
     it 'should be empty', ( done ) ->
