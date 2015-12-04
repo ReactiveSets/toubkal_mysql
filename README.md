@@ -1,4 +1,4 @@
-# MySQL Pipelets for [Toubkal](https://github.com/ReactiveSets/toubkal)
+# Reactive MySQL library
 
 [![Build Status](https://travis-ci.org/ReactiveSets/toubkal_mysql.svg?branch=master)](https://travis-ci.org/ReactiveSets/toubkal_mysql)
 
@@ -13,7 +13,7 @@ $ npm install toubkal_mysql
 ```
 
 ## Features
-- Toubkal pipelet: get updates in real-time, improves productivity
+- Reactive Toubkal pipelet: get updates in real-time, improves productivity
 - Hides MySQL credentials in JSON configuration file
 - Waits indefinitely for ready MySQL connection to process operations
 - Stateless, does not keep anything in memory, relies on MySQL cache
