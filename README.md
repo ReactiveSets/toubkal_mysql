@@ -4,6 +4,8 @@
 
 [![npm version](https://badge.fury.io/js/toubkal_mysql.svg)](http://badge.fury.io/js/toubkal_mysql)
 
+[![Dependency Status](https://gemnasium.com/ReactiveSets/toubkal_mysql.svg)](https://gemnasium.com/ReactiveSets/toubkal_mysql)
+
 API Stability: Unstable (API is under active development)
 
 ## Install
