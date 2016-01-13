@@ -1000,7 +1000,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
      - key (Array of Strings): defines the primary key, if key columns are aliased as defined
        above, alliased column names MUST be provided. default is [ 'id' ]
 */
-Pipelet.Compose( 'mysql', function( source, table, columns, options ) {
+rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connections = rs
     .configuration( { filepath: options.configuration } )
     .filter( [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ] )
