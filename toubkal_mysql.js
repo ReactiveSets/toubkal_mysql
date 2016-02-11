@@ -247,7 +247,7 @@ MySQL_Read.Output = Greedy.Output.subclass(
       ;
       
       // Get columns string and fill-up columns_aliases[]
-      columns = columns.map( column_to_sql ).join( '\n       , ' );
+      columns = process_columns( columns, parsers, serializers, columns_aliases );
       
       if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
       
@@ -305,39 +305,58 @@ MySQL_Read.Output = Greedy.Output.subclass(
         receiver( results, true );
       } )
       
-      function column_to_sql( column ) {
-        var a = column
-          , id
-          , as
-          , converter
+      function process_columns( columns, parsers, serializers, columns_aliases ) {
+        var i = -1
+          , l = columns.length
+          , _columns = []
         ;
         
-        if ( typeof column === 'object' ) {
-          id = column.id;
-          as = column.as;
-          converter = column.converter;
+        // !! Do not use columns.map() because it hides user bugs, skipping undefined values
+        while( ++i < l ) {
+          var column = columns[ i ]
+            , a      = column
+            , id
+            , as
+            , converter
+          ;
           
-          column = id;
-          a = as || id;
-          
-          if ( converter ) {
-            converter = converters.get( converter );
+          if ( typeof column === 'object' && column ) {
+            id = column.id;
+            as = column.as;
+            converter = column.converter;
             
-            parsers[ a ] = converter.parse;
-            serializers.push( { id: a, serialize: converter.serialize } );
+            column = id;
+            a = as || id;
+            
+            if ( converter ) {
+              converter = converters.get( converter );
+              
+              parsers[ a ] = converter.parse;
+              serializers.push( { id: a, serialize: converter.serialize } );
+            }
           }
-        }
+          
+          if ( ! column )
+            throw new Error( 'Undefined column id'
+              + ' at position ' + i
+              + ' in columns: ' + JSON.stringify( columns )
+              + ' of table: '   + table
+            )
+          ;
+          
+          columns_aliases[ a ] = column;
+          
+          column = mysql_connection.escapeId( column );
+          
+          if ( as ) {
+            column += ' AS ' + mysql_connection.escapeId( as );
+          }
+          
+          _columns.push( column );
+        } // while there are columns
         
-        columns_aliases[ a ] = column;
-        
-        column = mysql_connection.escapeId( column );
-        
-        if ( as ) {
-          column += ' AS ' + mysql_connection.escapeId( as );
-        }
-        
-        return column;
-      } // column_to_sql()
+        return _columns.join( '\n       , ' );
+      } // process_columns()
       
       function name() {
         return that._get_name( '_fetch' );
