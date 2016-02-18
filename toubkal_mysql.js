@@ -313,10 +313,10 @@ MySQL_Read.Output = Greedy.Output.subclass(
         
         // !! Do not use columns.map() because it hides user bugs, skipping undefined values
         while( ++i < l ) {
-          var column = columns[ i ]
-            , a      = column
+          var column    = columns[ i ]
+            , a         = column
             , id
-            , as
+            , as        = null
             , converter
           ;
           
