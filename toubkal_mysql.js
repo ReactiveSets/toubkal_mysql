@@ -168,202 +168,192 @@ converters.set( 'timestamp_t3', {
 function MySQL_Read( table, columns, connection, options ) {
   var that = this;
   
-  this._output || ( this._output = new MySQL_Read.Output( this, 'mysql_read_out', columns ) );
-  
   this._table = table;
   this._mysql_connection = null;
   
-  connection
-    .greedy()
-    ._output
-    .on( "remove", remove_connection )
-    .on( "add", add_connection )
-  ;
-  
   Greedy.call( this, options );
+  
+  var receivers = [];
+  
+  this._add_input(
+    connection,
+    
+    Greedy.Input,
+    
+    options.name + '-connection',
+    
+    {
+      _add   : add_connection,
+      _remove: remove_connection
+    }
+  );
+  
+  this._output.source = {
+    _fetch: fetch,
+    
+    update_query_string: function() {}
+  };
   
   function add_connection( connections ) {
     if ( connections.length ) {
       that._mysql_connection = connections[ connections.length - 1 ].mysql_connection;
     }
     
-    that._output.call_receivers();
+    call_receivers();
   } // add_connection()
   
   function remove_connection() {
     that._mysql_connection = null;
   } // remove_connection()
-} // MySQL_Read()
-
-MySQL_Read.Output = Greedy.Output.subclass(
-  'MySQL_Read.Output',
   
-  function( p, name, columns ) {
-    this.receivers = [];
-    this.columns = columns;
+  function call_receivers() {
+    while ( that._mysql_connection && receivers.length ) {
+      fetch.apply( null, receivers.shift() );
+    }
+  } // call_receivers()
+  
+  function add_receiver( _arguments ) {
+    receivers.push( slice.call( _arguments ) );
+  } // add_receiver()
+  
+  /* --------------------------------------------------------------------------------------------
+     fetch( receiver, query )
+     
+     SELECT values from table, according to query
+  */
+  function fetch( receiver, query ) {
+    var mysql_connection = that._mysql_connection;
     
-    Greedy.Output.call( this, p, name )
-  },
-  
-  {
-    call_receivers: function() {
-      var p = this.pipelet
-        , receivers = this.receivers
-        , fetch = this._fetch
-      ;
-      
-      while ( p._mysql_connection && receivers.length ) {
-        fetch.apply( this, receivers.shift() );
+    if ( ! mysql_connection ) {
+      return add_receiver( arguments );
+    }
+    
+    var table = mysql_connection.escapeId( that._table )
+      , _name
+      , where = ''
+      , _columns
+      , columns_aliases = []
+      , parsers = {}
+      , serializers = []
+    ;
+    
+    // Get columns string and fill-up columns_aliases[]
+    _columns = process_columns( columns, parsers, serializers, columns_aliases );
+    
+    if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
+    
+    var sql = '  SELECT ' + _columns + '\n\n  FROM ' + table + where;
+    
+    de&&ug( name() + 'sql:\n\n' + sql + '\n' );
+    
+    mysql_connection.query( sql, function( error, results, fields ) {
+      if ( error ) {
+        log( name() + ', unable to read', table, ', error:', error );
+        
+        // ToDo: handle errors
+        
+        return;
       }
       
-      return this;
-    }, // call_receivers()
-    
-    add_receiver: function( _arguments ) {
-      this.receivers.push( slice.call( _arguments ) );
-      
-      return this;
-    }, // add_receiver()
-    
-    /* --------------------------------------------------------------------------------------------
-       _fetch( receiver, query )
-       
-       SELECT values from table, according to query
-    */
-    _fetch: function( receiver, query ) {
-      var p = this.pipelet
-        , mysql_connection = p._mysql_connection
+      var s = serializers.length
+        , serialize
+        , column
+        , i
+        , result
       ;
       
-      if ( ! mysql_connection ) return this.add_receiver( arguments );
+      // Loop through serializers first because the number of columns with serializers
+      // is expected to be much smaller on average than the number rows returned by SELECT.
+      // This allows to maximize the amount of time spent serializing columns in the inner
+      // loop.
+      // Also, the serializers loop has more code than the row loop which would be slower
+      // if it was the inner loop.
+      while ( s ) {
+        serialize = serializers[ --s ];
+        
+        column    = serialize.id;
+        serialize = serialize.serialize;
+        
+        de&&ug( name() + 'serialize column:', column, 'with:', serialize );
+        
+        i = results.length;
+        
+        while ( i ) {
+          result = results[ --i ];
+          
+          result[ column ] = serialize( result[ column ] );
+        } // while there are results
+      } // while there are serializers
       
-      var table = mysql_connection.escapeId( p._table )
-        , columns = this.columns
-        , where = ''
-        , that = this
-        , columns_aliases = []
-        , parsers = {}
-        , serializers = []
+      if ( query ) {
+        de&&ug( name() + 'results before query filter:', results.length );
+        
+        results = new Query( query ).generate().filter( results );
+      }
+      
+      de&&ug( name() + 'results:', results.length );
+      
+      receiver( results, true );
+    } )
+    
+    function process_columns( columns, parsers, serializers, columns_aliases ) {
+      var i = -1
+        , l = columns.length
+        , _columns = []
       ;
       
-      // Get columns string and fill-up columns_aliases[]
-      columns = process_columns( columns, parsers, serializers, columns_aliases );
-      
-      if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
-      
-      var sql = '  SELECT ' + columns + '\n\n  FROM ' + table + where;
-      
-      de&&ug( name() + ', sql:\n\n' + sql + '\n' );
-      
-      mysql_connection.query( sql, function( error, results, fields ) {
-        if ( error ) {
-          log( name() + ', unable to read', table, ', error:', error );
-          
-          // ToDo: handle errors
-          
-          return;
-        }
-        
-        var s = serializers.length
-          , serialize
-          , column
-          , i
-          , result
+      // !! Do not use columns.map() because it hides user bugs, skipping undefined values
+      while( ++i < l ) {
+        var column    = columns[ i ]
+          , a         = column
+          , id
+          , as        = null
+          , converter
         ;
         
-        // Loop through serializers first because the number of columns with serializers
-        // is expected to be much smaller on average than the number rows returned by SELECT.
-        // This allows to maximize the amount of time spent serializing columns in the inner
-        // loop.
-        // Also, the serializers loop has more code than the row loop which would be slower
-        // if it was the inner loop.
-        while ( s ) {
-          serialize = serializers[ --s ];
+        if ( typeof column === 'object' && column ) {
+          id = column.id;
+          as = column.as;
+          converter = column.converter;
           
-          column    = serialize.id;
-          serialize = serialize.serialize;
+          column = id;
+          a = as || id;
           
-          de&&ug( name() + ', serialize column:', column, 'with:', serialize );
-          
-          i = results.length;
-          
-          while ( i ) {
-            result = results[ --i ];
+          if ( converter ) {
+            converter = converters.get( converter );
             
-            result[ column ] = serialize( result[ column ] );
-          } // while there are results
-        } // while there are serializers
-        
-        if ( query ) {
-          de&&ug( name() + ', results before query filter:', results.length );
-          
-          results = new Query( query ).generate().filter( results );
+            parsers[ a ] = converter.parse;
+            serializers.push( { id: a, serialize: converter.serialize } );
+          }
         }
         
-        de&&ug( name() + ', results:', results.length );
-        
-        receiver( results, true );
-      } )
-      
-      function process_columns( columns, parsers, serializers, columns_aliases ) {
-        var i = -1
-          , l = columns.length
-          , _columns = []
+        if ( ! column )
+          throw new Error( 'Undefined column id'
+            + ' at position ' + i
+            + ' in columns: ' + JSON.stringify( columns )
+            + ' of table: '   + table
+          )
         ;
         
-        // !! Do not use columns.map() because it hides user bugs, skipping undefined values
-        while( ++i < l ) {
-          var column    = columns[ i ]
-            , a         = column
-            , id
-            , as        = null
-            , converter
-          ;
-          
-          if ( typeof column === 'object' && column ) {
-            id = column.id;
-            as = column.as;
-            converter = column.converter;
-            
-            column = id;
-            a = as || id;
-            
-            if ( converter ) {
-              converter = converters.get( converter );
-              
-              parsers[ a ] = converter.parse;
-              serializers.push( { id: a, serialize: converter.serialize } );
-            }
-          }
-          
-          if ( ! column )
-            throw new Error( 'Undefined column id'
-              + ' at position ' + i
-              + ' in columns: ' + JSON.stringify( columns )
-              + ' of table: '   + table
-            )
-          ;
-          
-          columns_aliases[ a ] = column;
-          
-          column = mysql_connection.escapeId( column );
-          
-          if ( as ) {
-            column += ' AS ' + mysql_connection.escapeId( as );
-          }
-          
-          _columns.push( column );
-        } // while there are columns
+        columns_aliases[ a ] = column;
         
-        return _columns.join( '\n       , ' );
-      } // process_columns()
+        column = mysql_connection.escapeId( column );
+        
+        if ( as ) {
+          column += ' AS ' + mysql_connection.escapeId( as );
+        }
+        
+        _columns.push( column );
+      } // while there are columns
       
-      function name() {
-        return that._get_name( '_fetch' );
-      } // name()
-    } // _fetch()
-  } // MySQL_Read.Output instance methods
-); // MySQL_Read.Output
+      return _columns.join( '\n       , ' );
+    } // process_columns()
+    
+    function name() {
+      return _name || ( _name = that._get_name( 'fetch' ) );
+    } // name()
+  } // fetch()
+} // MySQL_Read()
 
 function where_from_query( query, connection, columns_aliases, parsers ) {
   var where = query
