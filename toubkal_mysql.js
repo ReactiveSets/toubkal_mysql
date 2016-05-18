@@ -380,7 +380,11 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
               
               var alias = columns_aliases[ property ];
               
-              if ( ! alias ) throw new Error( 'where_from_query() error, column from query not defined in schema: ' + property );
+              
+              if ( ! alias )
+                // ToDo: send an error instead of throwing
+                throw new Error( 'where_from_query() error, column from query not defined in schema: ' + property )
+              ;
               
               // ToDo: use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
             return connection.escapeId( alias ) + ' = ' + connection.escape( value );
@@ -738,18 +742,18 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           c = columns[ j ];
           v = value[ c ];
           
-          if ( v === null || v === undefined ) {
+          emit_value[ c ] = v;
+          
+          if ( v == null ) { // null or undefined
             if ( key.indexOf( c ) !== -1 ) {
               // this attribute is part of the key, it must be provided
               return null_key_attribute_error( i, c, value );
             }
             
-            v = null;
+            v = null; // could have been undefined
+          } else if ( parser = parsers[ c ] ) {
+            v = parser( v );
           }
-          
-          emit_value[ c ] = v;
-          
-          if ( parser = parsers[ c ] ) v = parser( v );
           
           bulk_values += ( j ? ', ' : '( ' ) + connection.escape( v );
         }
@@ -900,11 +904,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             a = key[ j ];
             v = value[ a ];
             
-            if ( v === null || v === undefined ) {
+            if ( v == null ) { // null or undefined
               return emit_error( null_key_attribute_error( i, a, value ) );
+            } else if ( parser = parsers[ a ] ) {
+              v = parser( v );
             }
-            
-            if ( parser = parsers[ a ] ) v = parser( v );
             
             where += ( j ? ' AND ' : ' ' )
               + escaped_key[ j ]
@@ -925,11 +929,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           value = values[ i ];
           v = value[ a ];
           
-          if ( v === null || v === undefined ) {
+          if ( v == null ) { // null or undefined
             return emit_error( null_key_attribute_error( i, a, value ) );
+          } else if ( parser ) {
+            v = parser( v );
           }
-          
-          if ( parser ) v = parser( v );
           
           where += ( i ? ', ' : ' ' ) + connection.escape( v );
         }
