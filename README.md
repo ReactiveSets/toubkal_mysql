@@ -37,7 +37,9 @@ failed operations
 Getting a dataflow from "users" table in the "test" database using the "root" MySQL account:
 
 ```javascript
-var rs = require( 'toubkal_mysql' );
+var rs = require( 'toubkal' );
+
+require( 'toubkal_mysql' )( rs );
 
 rs.mysql( 'test.users',
     , [ 'id', 'email', 'first_name', 'last_name', 'city' ]

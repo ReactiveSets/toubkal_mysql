@@ -24,9 +24,13 @@
 */
 'use strict';
 
-var mysql            = require( 'mysql' )
-  , rs               = require( 'toubkal' )
-  , RS               = rs.RS
+var mysql = require( 'mysql' );
+
+module.exports = init;
+
+function init( rs ) {
+
+var RS               = rs.RS
   , uuid             = RS.uuid
   , timestamp_string = RS.timestamp_string
   , Pipelet          = RS.Pipelet
@@ -40,8 +44,6 @@ var mysql            = require( 'mysql' )
   , ug               = de && log
   , slice            = Array.prototype.slice
 ;
-
-module.exports = rs; // re-exports rs which is the namespace for toubkal_mysql pipelets
 
 /* ------------------------------------------------------------------------------------------------
    mysql_connections( options )
@@ -1033,5 +1035,7 @@ rs.Compose( 'mysql', function( source, table, columns, options ) {
   
   return rs.encapsulate( input, output, options );
 } ); // mysql()
+
+} // init()
 
 // toubkal_mysql.js

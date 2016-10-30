@@ -40,7 +40,10 @@ check  = utils.check
 
 subclass = this.rs && this.rs.RS.subclass
 
-rs = require '../../toubkal_mysql.js'
+rs = require 'toubkal'
+
+require( '../../toubkal_mysql.js' )( rs )
+
 RS = rs.RS
 
 # ----------------------------------------------------------------------------------------------
