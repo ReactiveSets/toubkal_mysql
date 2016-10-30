@@ -129,7 +129,7 @@ Parameters:
         - serialize (Function): serialize( \<mysql driver value\> ) -> value
 
 - options (Object): optional attributes:
-  - connection (String): MySQL connection identifier in configuration file, default is "root"
+  - connection (String): ```"name"``` in configuration file, default is "root"
   - configuration (String): filename of configuration file, default is "~/config.rs.json"
   - mysql (Object): 
     [connection options for "mysql" npm module](https://www.npmjs.com/package/mysql#connection-options).
@@ -145,7 +145,7 @@ Parameters:
 
   The MIT License (MIT)
 
-  Copyright (c) 2015, Reactive Sets
+  Copyright (c) 2015-2016, Reactive Sets
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
