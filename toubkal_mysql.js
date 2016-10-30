@@ -2,7 +2,7 @@
 
     The MIT License (MIT)
     
-    Copyright (c) 2015, Reactive Sets
+    Copyright (c) 2015-2016, Reactive Sets
     
     Permission is hereby granted, free of charge, to any person obtaining a copy
     of this software and associated documentation files (the "Software"), to deal
@@ -1004,7 +1004,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
            - serialize (Function): serialize( <value from mysql driver> ) -> value
    
    - options (Object): optional attributes:
-     - connection (String): id of connection in configuration file, default is 'root'
+     - connection (String): name of connection in configuration file, default is 'root'
      
      - configuration (String): filename of configuration file, default is ~/config.rs.json
      
@@ -1016,7 +1016,12 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
 rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connections = rs
     .configuration( { filepath: options.configuration } )
+    
+    // configuration is a multiton, requires explicit disconnection when source disconnects
+    .remove_destination_with( source )
+    
     .filter( [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ] )
+    
     .mysql_connections( { mysql: options.mysql } )
   ;
   
