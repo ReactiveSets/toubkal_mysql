@@ -1,7 +1,7 @@
 {
   "name": "toubkal_mysql",
 
-  "version": "0.1.10",
+  "version": "0.1.11",
 
   "description": "Reactive MySQL library",
 
@@ -19,18 +19,18 @@
   "bugs": {
     "url": "https://github.com/ReactiveSets/toubkal_mysql/issues"
   },
-
+  
   "dependencies": {
-    "toubkal"  : "latest",
-    "mysql"    : "2.11.1"
+    "mysql": "2.11.1"
   },
-
+  
   "devDependencies": {
-    "coffee-script"         : "1.11.1",
-    "source-map-support"    : "0.4.3",
-    "mocha"                 : "3.1.2",
-    "expect.js"             : "0.3.1",
-    "mocha-unfunk-reporter" : "0.4.0"
+    "toubkal"              : "latest",
+    "coffee-script"        : "1.11.1",
+    "source-map-support"   : "0.4.3",
+    "mocha"                : "3.1.2",
+    "expect.js"            : "0.3.1",
+    "mocha-unfunk-reporter": "0.4.0"
   },
 
   "scripts": {
