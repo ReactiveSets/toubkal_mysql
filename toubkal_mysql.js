@@ -73,7 +73,9 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
       var mysql_connection = mysql.createConnection( connection.mysql );
       
       // hide paswword, preventing downstream traces from disclosing it
-      connection.mysql.password = connection.mysql.password && '***';
+      if( connection.mysql.password ) {
+        connection.mysql.password = '***';
+      }
       
       de&&ug( this._get_name( '_add_value' ) + 'mysql:', connection.mysql );
       
