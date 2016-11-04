@@ -35,7 +35,7 @@ var RS               = rs.RS
   , timestamp_string = RS.timestamp_string
   , Pipelet          = RS.Pipelet
   , Greedy           = RS.Greedy
-  , Set              = RS.Set
+  , Unique           = RS.Unique
   , Query            = RS.Query
   , extend           = RS.extend
   , clone            = extend.clone
@@ -46,33 +46,32 @@ var RS               = rs.RS
 ;
 
 /* ------------------------------------------------------------------------------------------------
-   mysql_connections( options )
+   mysql_connections_set( options )
    
    Parameters:
    - options (optional Object): optional attributes:
      - mysql (Object): mysql npm module default connection options:
        https://www.npmjs.com/package/mysql#connection-options
 */
-
-function MySQL_Connections( options ) {
-  Set.call( this, [], options );
-} // MySQL_Connections()
+function MySQL_Connections_Set( options ) {
+  Unique.call( this, [], options );
+} // MySQL_Connections_Set()
 
 // ToDo: share connections sharing unique sets of parameters
 
-Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
+Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) {
   return {
     _add_value: function( t, _connection ) {
       var that = this;
       
       // Do not trace _connection here, it would display passwords in logs
-      de&&ug( this._get_name( '_add_value' ) + 'adding connection:', this._make_key( _connection ) );
+      de&&ug( that._get_name( '_add_value' ) + 'adding connection:', this._make_key( _connection ) );
       
       connect( function( error, connection ) {
         if( error ) {
           t.emit_nothing();
         } else {
-          de&&ug( 'Connected to:', connection.mysql );
+          de&&ug( that._get_name( '_add_value' ) + 'Connected to:', connection.mysql );
           
           Super._add_value.call( that, t, connection );
         }
@@ -107,11 +106,12 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         } );
         
         mysql_connection.on( 'error', function( error ) {
+          // Do not remove in a transaction, as we want to make sure that removal takes immediate effect downstream
           that._remove( [ connection ] );
           
           on_error( error, function( error, connection ) {
             if( ! error ) {
-              de&&ug( 'Reconnected to:', connection.mysql );
+              de&&ug( that._get_name( 'on_error' ) + 'Reconnected to:', connection.mysql );
               
               that.__add_value( connection );
               
@@ -121,7 +121,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         } );
         
         function on_error( error, done ) {
-          log( 'Warning connecting to:', connection.mysql, ', error:', error );
+          log( that._get_name( 'on_error' ) + 'Warning connecting to:', connection.mysql, ', error:', error );
           
           switch( error.code ) {
             case 'ETIMEDOUT':
@@ -136,7 +136,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
               connection.mysql_connection = null;
               connection.error = error;
               
-              log( 'Fatal Error, code:', error.code, ', failed to (re)connect to:', connection.mysql );
+              log( that._get_name( 'on_error' ) + 'Fatal Error, code:', error.code, ', failed to (re)connect to:', connection.mysql );
               
               done( connection );
           }
@@ -158,13 +158,17 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         
         Super._remove_value.call( this, t, connection );
       } else {
-        log( 'Error removing not found connection:', this._make_key( connection ) );
+        log( this._get_name( '_remove_value' ) + 'Error removing not found connection:', this._make_key( connection ) );
         
         t.emit_nothing();
       }
     } // _remove_value()
   };
-} ); // mysql_connections()
+} ).singleton(); // mysql_connections_set()
+
+rs.Singleton( 'mysql_connections', function( source, options ) {
+  return source.mysql_connections_set( options );
+} );
 
 /* ------------------------------------------------------------------------------------------------
    Converters
@@ -1069,15 +1073,25 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
        above, alliased column names MUST be provided. default is [ 'id' ]
 */
 rs.Compose( 'mysql', function( source, table, columns, options ) {
+  var connection_terms = [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ];
+  
   var connections = rs
     .configuration( { filepath: options.configuration } )
     
-    .filter( [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ] )
+    .filter( connection_terms )
     
     // configuration() is a multiton, requires explicit disconnection when source disconnects
     .remove_source_with( source )
     
+    // mysql_connections() is a singleton
+    .remove_destination_with( source )
+    
     .mysql_connections( { mysql: options.mysql } )
+    
+    .filter( connection_terms )
+    
+    // mysql_connections() is a singleton
+    .remove_source_with( source )
   ;
   
   de&&ug( 'mysql(), options:', options );
