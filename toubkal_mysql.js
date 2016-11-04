@@ -41,7 +41,7 @@ var RS               = rs.RS
   , clone            = extend.clone
   , log              = RS.log.bind( null, 'mysql' )
   , de               = true
-  , ug               = de && log
+  , ug               = log
   , slice            = Array.prototype.slice
 ;
 
@@ -58,45 +58,89 @@ function MySQL_Connections( options ) {
   Set.call( this, [], options );
 } // MySQL_Connections()
 
+// ToDo: share connections sharing unique sets of parameters
+
 Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
   return {
-    _add_value: function( t, connection ) {
+    _add_value: function( t, _connection ) {
       var that = this;
       
-      connection = clone( connection );
-      
-      // Transactions are connection-based, shared by all pipelets sharing the same connection
-      connection.transactions = {};
-      
-      connection.mysql = extend( {}, this._options.mysql, connection.mysql );
-      
-      var mysql_connection = mysql.createConnection( connection.mysql );
-      
-      // hide paswword, preventing downstream traces from disclosing it
-      if( connection.mysql.password ) {
-        connection.mysql.password = '***';
-      }
-      
-      de&&ug( this._get_name( '_add_value' ) + 'mysql:', connection.mysql );
-      
-      // Try to connect immediately
-      mysql_connection.connect( function( error ) {
-        if ( error ) {
-          log( 'Error connecting to:', connection.mysql, ', error:', error );
-          
-          connection.mysql_connection = null;
-          connection.error = error;
+      connect( function( error, connection ) {
+        if( error ) {
+          t.emit_nothing();
         } else {
-          connection.mysql_connection = mysql_connection;
-          mysql_connection.toJSON = function() { return 'mysql connection' };
+          log( 'Connected to:', connection.mysql );
+          
+          Super._add_value.call( that, t, connection );
         }
-        
-        Super._add_value.call( that, t, connection );
       } );
       
-      // ToDo: monitor disconnections, automatically reconnect, possibly after some timeout
-      
-      return this;
+      function connect( done ) {
+        var connection = clone( _connection );
+        
+        // Transactions are connection-based, shared by all pipelets sharing the same connection
+        connection.transactions = {};
+        
+        connection.mysql = extend( {}, that._options.mysql, connection.mysql );
+        
+        var mysql_connection = mysql.createConnection( connection.mysql );
+        
+        // hide paswword, preventing downstream traces from disclosing it
+        if( connection.mysql.password ) {
+          connection.mysql.password = '***';
+        }
+        
+        de&&ug( that._get_name( '_add_value' ) + 'mysql:', connection.mysql );
+        
+        // Try to connect immediately
+        mysql_connection.connect( function( error ) {
+          if( error ) return on_error( error, done );
+          
+          connection.mysql_connection = mysql_connection;
+          
+          mysql_connection.toJSON = function() { return 'mysql connection' };
+          
+          done( error, connection );
+        } );
+        
+        mysql_connection.on( 'error', function( error ) {
+          that._remove( connection );
+          
+          on_error( error, function( error, connection ) {
+            if( ! error ) {
+              log( 'Reconnected to:', connection.mysql );
+              
+              that.__add_value( connection );
+              
+              that.__emit_add( [ connection ] );
+            }
+          } );
+        } );
+        
+        function on_error( error, done ) {
+          log( 'Error connecting to:', connection.mysql, ', error:', error );
+          
+          switch( error.code ) {
+            case 'ETIMEDOUT':
+              setTimeout( try_again, 2000 );
+            break;
+            
+            case 'PROTOCOL_CONNECTION_LOST':
+              setTimeout( try_again, 10000 );
+            break;
+            
+            default:
+              connection.mysql_connection = null;
+              connection.error = error;
+              
+              log( 'Fatal Error, code:', error.code, ', failed to (re)connect to:', connection );
+              
+              done( connection );
+          }
+          
+          function try_again() { connect( done ) };
+        } // on_error()
+      } // connect()
     }, // _add_value()
     
     _remove_value: function( t, connection ) {
@@ -112,9 +156,9 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         Super._remove_value.call( this, t, connection );
       } else {
         log( 'Error removing not found connection:', connection );
+        
+        t.emit_nothing();
       }
-      
-      return this;
     } // _remove_value()
   };
 } ); // mysql_connections()
