@@ -129,6 +129,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
             break;
             
             case 'PROTOCOL_CONNECTION_LOST':
+            case 'ECONNREFUSED':
               setTimeout( try_again, 10000 );
             break;
             
