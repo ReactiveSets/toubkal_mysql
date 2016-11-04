@@ -65,11 +65,14 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
     _add_value: function( t, _connection ) {
       var that = this;
       
+      // Do not trace _connection here, it would display passwords in logs
+      de&&ug( this._get_name( '_add_value' ) + 'adding connection:', this._make_key( _connection ) );
+      
       connect( function( error, connection ) {
         if( error ) {
           t.emit_nothing();
         } else {
-          log( 'Connected to:', connection.mysql );
+          de&&ug( 'Connected to:', connection.mysql );
           
           Super._add_value.call( that, t, connection );
         }
@@ -90,7 +93,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
           connection.mysql.password = '***';
         }
         
-        de&&ug( that._get_name( '_add_value' ) + 'mysql:', connection.mysql );
+        de&&ug( that._get_name( 'connect' ) + 'mysql:', connection.mysql );
         
         // Try to connect immediately
         mysql_connection.connect( function( error ) {
@@ -104,11 +107,11 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         } );
         
         mysql_connection.on( 'error', function( error ) {
-          that._remove( connection );
+          that._remove( [ connection ] );
           
           on_error( error, function( error, connection ) {
             if( ! error ) {
-              log( 'Reconnected to:', connection.mysql );
+              de&&ug( 'Reconnected to:', connection.mysql );
               
               that.__add_value( connection );
               
@@ -118,7 +121,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         } );
         
         function on_error( error, done ) {
-          log( 'Error connecting to:', connection.mysql, ', error:', error );
+          log( 'Warning connecting to:', connection.mysql, ', error:', error );
           
           switch( error.code ) {
             case 'ETIMEDOUT':
@@ -133,7 +136,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
               connection.mysql_connection = null;
               connection.error = error;
               
-              log( 'Fatal Error, code:', error.code, ', failed to (re)connect to:', connection );
+              log( 'Fatal Error, code:', error.code, ', failed to (re)connect to:', connection.mysql );
               
               done( connection );
           }
@@ -144,7 +147,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
     }, // _add_value()
     
     _remove_value: function( t, connection ) {
-      var i = this._index_of( connection );
+      var i = this._a_index_of( connection );
       
       if ( i != -1 ) {
         connection = this.a[ i ];
@@ -155,7 +158,7 @@ Set.Build( 'mysql_connections', MySQL_Connections, function( Super ) {
         
         Super._remove_value.call( this, t, connection );
       } else {
-        log( 'Error removing not found connection:', connection );
+        log( 'Error removing not found connection:', this._make_key( connection ) );
         
         t.emit_nothing();
       }
@@ -231,8 +234,8 @@ function MySQL_Read( table, columns, connection, options ) {
     options.name + '-connection',
     
     {
-      _add   : add_connection,
-      _remove: remove_connection
+      _add   : add_connections,
+      _remove: remove_connections
     }
   );
   
@@ -242,17 +245,21 @@ function MySQL_Read( table, columns, connection, options ) {
     update_query_string: function() {}
   };
   
-  function add_connection( connections ) {
+  function add_connections( connections ) {
+    de&&ug( that._get_name( 'add_connections' ), table, JSON.stringify( connections ) );
+    
     if ( connections.length ) {
       that._mysql_connection = connections[ connections.length - 1 ].mysql_connection;
     }
     
     call_receivers();
-  } // add_connection()
+  } // add_connections()
   
-  function remove_connection() {
-    that._mysql_connection = null;
-  } // remove_connection()
+  function remove_connections( connections ) {
+    de&&ug( that._get_name( 'remove_connections' ), table, JSON.stringify( connections ) );
+    
+    if( connections.length ) that._mysql_connection = null;
+  } // remove_connections()
   
   function call_receivers() {
     while ( that._mysql_connection && receivers.length ) {
@@ -322,7 +329,7 @@ function MySQL_Read( table, columns, connection, options ) {
         column    = serialize.id;
         serialize = serialize.serialize;
         
-        de&&ug( name() + 'serialize column:', column, 'with:', serialize );
+        // de&&ug( name() + 'serialize column:', column, 'with:', serialize );
         
         i = results.length;
         
@@ -334,12 +341,12 @@ function MySQL_Read( table, columns, connection, options ) {
       } // while there are serializers
       
       if ( query ) {
-        de&&ug( name() + 'results before query filter:', results.length );
+        //de&&ug( name() + 'results before query filter:', results.length );
         
         results = new Query( query ).generate().filter( results );
       }
       
-      de&&ug( name() + 'results:', results.length );
+      //de&&ug( name() + 'results:', results.length );
       
       receiver( results, true );
     } )
@@ -406,7 +413,7 @@ function MySQL_Read( table, columns, connection, options ) {
 function where_from_query( query, connection, columns_aliases, parsers ) {
   var where = query
     .map( function( or_term ) {
-      de&&ug( 'where_from_query(), or_term:', or_term );
+      //de&&ug( 'where_from_query(), or_term:', or_term );
       
       or_term = Object.keys( or_term )
         
@@ -550,8 +557,8 @@ function MySQL_Write( table, columns, connection, options ) {
   connection
     .greedy()
     ._output
-    .on( "add", add_connection )
-    .on( "remove", remove_connection )
+    .on( "add", add_connections )
+    .on( "remove", remove_connections )
   ;
   
   Greedy.call( this, options );
@@ -577,7 +584,7 @@ function MySQL_Write( table, columns, connection, options ) {
     columns_aliases[ as ] = column;
   } // add_column()
   
-  function add_connection( connections ) {
+  function add_connections( connections ) {
     var l = connections.length;
     
     if ( l ) {
@@ -585,11 +592,11 @@ function MySQL_Write( table, columns, connection, options ) {
       
       that._call_waiters();
     }
-  } // add_connection()
+  } // add_connections()
   
-  function remove_connection() {
-    that._connection = null;
-  } // remove_connection()
+  function remove_connections( connections ) {
+    if( connections.length ) that._connection = null;
+  } // remove_connections()
 } // MySQL_Write()
 
 function null_key_attribute_error( position, attribute, value ) {
@@ -1065,10 +1072,10 @@ rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connections = rs
     .configuration( { filepath: options.configuration } )
     
-    // configuration is a multiton, requires explicit disconnection when source disconnects
-    .remove_destination_with( source )
-    
     .filter( [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ] )
+    
+    // configuration() is a multiton, requires explicit disconnection when source disconnects
+    .remove_source_with( source )
     
     .mysql_connections( { mysql: options.mysql } )
   ;
