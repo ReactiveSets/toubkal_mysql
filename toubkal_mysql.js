@@ -62,16 +62,18 @@ function MySQL_Connections_Set( options ) {
 Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) {
   return {
     _add_value: function( t, _connection ) {
-      var that = this;
+      var that     = this
+        , identity = this._make_key( _connection )
+      ;
       
       // Do not trace _connection here, it would display passwords in logs
-      de&&ug( that._get_name( '_add_value' ) + 'adding connection:', this._make_key( _connection ) );
+      de&&ug( that._get_name( '_add_value' ) + 'adding connection:', identity );
       
       connect( function( error, connection ) {
         if( error ) {
           t.emit_nothing();
         } else {
-          de&&ug( that._get_name( '_add_value' ) + 'Connected to:', connection.mysql );
+          de&&ug( that._get_name( '_add_value' ) + 'Connected to:', identity, connection.mysql );
           
           Super._add_value.call( that, t, connection );
         }
@@ -92,11 +94,15 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
           connection.mysql.password = '***';
         }
         
-        de&&ug( that._get_name( 'connect' ) + 'mysql:', connection.mysql );
+        de&&ug( that._get_name( 'connect' ) + 'id:', identity,'mysql:', connection.mysql );
         
         // Try to connect immediately
         mysql_connection.connect( function( error ) {
-          if( error ) return on_error( error, done );
+          if( error ) {
+            log( that._get_name( 'connect' ) + 'Warning, while (re)connecting to mysql:', identity, ', error:', error );
+            
+            return on_error( error, done );
+          }
           
           connection.mysql_connection = mysql_connection;
           
@@ -106,12 +112,14 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
         } );
         
         mysql_connection.on( 'error', function( error ) {
+          log( that._get_name( 'on_error' ) + 'Warning on:', identity, ', error:', error );
+          
           // Do not remove in a transaction, as we want to make sure that removal takes immediate effect downstream
           that._remove( [ connection ] );
           
           on_error( error, function( error, connection ) {
             if( ! error ) {
-              de&&ug( that._get_name( 'on_error' ) + 'Reconnected to:', connection.mysql );
+              de&&ug( that._get_name( 'on_error' ) + 'Reconnected to:', identity, connection.mysql );
               
               that.__add_value( connection );
               
@@ -121,8 +129,6 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
         } );
         
         function on_error( error, done ) {
-          log( that._get_name( 'on_error' ) + 'Warning connecting to:', connection.mysql, ', error:', error );
-          
           switch( error.code ) {
             case 'ETIMEDOUT':
               setTimeout( try_again, 2000 );
@@ -137,7 +143,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
               connection.mysql_connection = null;
               connection.error = error;
               
-              log( that._get_name( 'on_error' ) + 'Fatal Error, code:', error.code, ', failed to (re)connect to:', connection.mysql );
+              log( that._get_name( 'on_error' ) + 'Fatal Error, code:', error.code, ', failed to (re)connect to:', identity, connection.mysql );
               
               done( connection );
           }
@@ -273,6 +279,8 @@ function MySQL_Read( table, columns, connection, options ) {
   } // call_receivers()
   
   function add_receiver( _arguments ) {
+    de&&ug( that._get_name( 'add_receiver' ), _arguments[ 1 ] );
+    
     receivers.push( slice.call( _arguments ) );
   } // add_receiver()
   
@@ -310,7 +318,20 @@ function MySQL_Read( table, columns, connection, options ) {
       if ( error ) {
         log( name() + ', unable to read', table, ', error:', error );
         
-        // ToDo: handle errors
+        switch( error.code ) {
+          case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+            // We expect a new connection to execute this query later
+            
+            add_receiver( [ receiver, query ] );
+          break;
+          
+          default:
+            // ToDo: emit out-of-band fatal error
+            log( name() + ', table:', table, ', fatal error:', error.code );
+            
+            receiver( [], true );
+          break;
+        }
         
         return;
       }
@@ -693,14 +714,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( sql, function( error, results ) {
       if ( error ) {
-        log( 'Unable to INSERT INTO', table
-          , ', code:'    , error.code
-          , ', number:'  , error.errno
-          , ', sqlState:', error.sqlState
-          , ', index:'   , error.index
-          , ', message:' , error.message
-          //, ', error:'   , error
-        );
+        log( 'Unable to INSERT INTO', table, ', error:', error );
         
         /*
           ToDo: Error Handling:
@@ -710,11 +724,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
               then consider updating
             - Example:
               { [Error: ER_DUP_ENTRY: Duplicate entry '100000' for key 'PRIMARY'] code: 'ER_DUP_ENTRY', errno: 1062, sqlState: '23000', index: 0 }
-              
-          - Connection error:
-            - should atempt to reconnect, if it fails continuously, then the application may not
-              be able to function, consider terminating the process
-              
+          
           - Constraints violations
           
             Emit errors with sender information so that added values may be removed by sender.
@@ -737,6 +747,12 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             updated to prevent removes() to be propagated back to server, potentially alterring
             the valid state of the database.
         */
+        switch( error.code ) {
+          case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+            // We expect a new connection to execute this query later
+          return that._add_waiter( '_add', [ values, options ] );
+        }
+        
         emit_error( {
           // ToDo: provide toubkal error code from MySQL error
           
@@ -887,14 +903,13 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // All added values should have been removed first, the order of operations is important for MySQL
     connection.query( sql, function( error, results ) {
       if ( error ) {
-        log( get_name() + 'unable to DELETE FROM', table
-          , ', code:'    , error.code
-          , ', number:'  , error.errno
-          , ', sqlState:', error.sqlState
-          , ', index:'   , error.index
-          , ', message:' , error.message
-          , ', error:'   , error
-        );
+        log( get_name() + 'unable to DELETE FROM', table, ', error:', error );
+        
+        switch( error.code ) {
+          case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+            // We expect a new connection to execute this query later
+          return that._add_waiter( '_add', [ values, options ] );
+        }
         
         emit_error( {
           // ToDo: provide toubkal error code from MySQL error
