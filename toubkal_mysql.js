@@ -136,6 +136,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
             
             case 'PROTOCOL_CONNECTION_LOST':
             case 'ECONNREFUSED':
+            case 'EHOSTUNREACH':
               setTimeout( try_again, 10000 );
             break;
             
@@ -257,7 +258,7 @@ function MySQL_Read( table, columns, connection, options ) {
   };
   
   function add_connections( connections ) {
-    de&&ug( that._get_name( 'add_connections' ), table, JSON.stringify( connections ) );
+    de&&ug( that._get_name( 'add_connections' ), table, connections.map( connection_id ) );
     
     if ( connections.length ) {
       that._mysql_connection = connections[ connections.length - 1 ].mysql_connection;
@@ -267,10 +268,12 @@ function MySQL_Read( table, columns, connection, options ) {
   } // add_connections()
   
   function remove_connections( connections ) {
-    de&&ug( that._get_name( 'remove_connections' ), table, JSON.stringify( connections ) );
+    de&&ug( that._get_name( 'remove_connections' ), table, connections.map( connection_id ) );
     
     if( connections.length ) that._mysql_connection = null;
   } // remove_connections()
+  
+  function connection_id( connection ) { return connection.id; }
   
   function call_receivers() {
     while ( that._mysql_connection && receivers.length ) {
@@ -316,10 +319,12 @@ function MySQL_Read( table, columns, connection, options ) {
     
     mysql_connection.query( sql, function( error, results, fields ) {
       if ( error ) {
-        log( name() + ', unable to read', table, ', error:', error );
+        log( name() + 'unable to read', table, ', error:', error );
         
         switch( error.code ) {
           case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+          case 'ER_SERVER_SHUTDOWN':
+          case 'PROTOCOL_CONNECTION_LOST':
             // We expect a new connection to execute this query later
             
             add_receiver( [ receiver, query ] );
@@ -327,7 +332,7 @@ function MySQL_Read( table, columns, connection, options ) {
           
           default:
             // ToDo: emit out-of-band fatal error
-            log( name() + ', table:', table, ', fatal error:', error.code );
+            log( name() + 'table:', table, ', fatal error:', error.code );
             
             receiver( [], true );
           break;
@@ -749,6 +754,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         */
         switch( error.code ) {
           case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+          case 'ER_SERVER_SHUTDOWN':
+          case 'PROTOCOL_CONNECTION_LOST':
             // We expect a new connection to execute this query later
           return that._add_waiter( '_add', [ values, options ] );
         }
@@ -907,6 +914,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         
         switch( error.code ) {
           case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+          case 'ER_SERVER_SHUTDOWN':
+          case 'PROTOCOL_CONNECTION_LOST':
             // We expect a new connection to execute this query later
           return that._add_waiter( '_add', [ values, options ] );
         }
