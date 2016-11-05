@@ -17,7 +17,12 @@ $ npm install toubkal_mysql
 ## Features
 - Reactive Toubkal pipelet: get updates in real-time, improves productivity
 - Hides MySQL credentials in JSON configuration file
-- Waits indefinitely for ready MySQL connection to process operations
+- Automatically reconnects to server, on disconnection-related errors while:
+  - there are network issues
+  - restarting MySQL server
+  - rebooting server hosting MySQL server
+  - prolongued shutdown of server hosting MySQL server
+- Waits indefinitely for ready MySQL (re)connection to process operations
 - Stateless, does not keep anything in memory, relies on MySQL cache
 - Can be cached explitity using set() pipelet
 - Dynamically creates optimized MySQL queries:
