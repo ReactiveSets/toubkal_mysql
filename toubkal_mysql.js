@@ -216,7 +216,33 @@ converters.set( 'timestamp_t3', {
   serialize: function( t ) {
     return timestamp_string( new Date( t ) );
   }
-} ); // 'timestamp_t3'
+} ); // timestamp_t3
+
+converters.set( 'json', {
+  parse: function( json ) {
+    var text = JSON.stringify( json );
+    
+    //de&&ug( 'converter.json parse, JSON.stringify():', text );
+    
+    return text;
+  },
+  
+  serialize: function( text ) {
+    try {
+      var json = JSON.parse( text );
+      
+      //de&&ug( 'converter.json serialize, JSON.parse():', json );
+      
+    } catch( e ) {
+      // ToDo: emit out-of-band error
+      log( 'JSON.parse error:', e );
+      
+      json = null;
+    }
+    
+    return json;
+  }
+} ); // json
 
 /* ------------------------------------------------------------------------------------------------
    mysql_read( table, columns, connection, options )

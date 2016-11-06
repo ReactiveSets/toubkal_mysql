@@ -30,8 +30,10 @@ $ npm install toubkal_mysql
   - DELETE queries from upstream remove operations using "key" option
   - INSERT queries from upstream add opeations using "columns" parameter
 - Allows column name aliases
-- Allows to define value converters per column
-- Provides value converter from UUID to BINARY(16) and Toubkal timestamps to TIMESTAMP(3)
+- Allows to define value converters per column:
+  - from UUID to BINARY(16)
+  - Toubkal timestamps to TIMESTAMP(3)
+  - JSON to TEXT() or VARCHAR()
 - Emits detailled errors in error dataflow for downstream error reporting and recovery by reverting
 failed operations
 
@@ -131,9 +133,10 @@ Parameters:
         - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
         - "timestamp_t3": converts Toubkal timestamp into TIMESTAMP(3)
           ([requires MySQL 5.6.4 and up](http://dev.mysql.com/doc/refman/5.6/en/fractional-seconds.html))
+        - "json": converts JSON values to/from MySQL strings for TEXT() or VARCHAR()
       - (Object): Providing the following functions:
         - parse     (Function): parse( value ) -> value to mysql driver
-        - serialize (Function): serialize( \<mysql driver value\> ) -> value
+        - serialize (Function): serialize( \<value from mysql driver\> ) -> value
 
 - options (Object): optional attributes:
   - connection (String): ```"name"``` in configuration file, default is "root"
