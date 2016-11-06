@@ -130,11 +130,14 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
         
         function on_error( error, done ) {
           switch( error.code ) {
+            case 'PROTOCOL_CONNECTION_LOST':
+              try_again();
+            break;
+            
             case 'ETIMEDOUT':
               setTimeout( try_again, 2000 );
             break;
             
-            case 'PROTOCOL_CONNECTION_LOST':
             case 'ECONNREFUSED':
             case 'EHOSTUNREACH':
               setTimeout( try_again, 10000 );
