@@ -46,12 +46,12 @@ var RS               = rs.RS
 ;
 
 /* ------------------------------------------------------------------------------------------------
-   mysql_connections_set( options )
-   
-   Parameters:
-   - options (optional Object): optional attributes:
-     - mysql (Object): mysql npm module default connection options:
-       https://www.npmjs.com/package/mysql#connection-options
+    mysql_connections_set( options )
+    
+    Parameters:
+    - options (optional Object): optional attributes:
+      - mysql (Object): mysql npm module default connection options:
+        https://www.npmjs.com/package/mysql#connection-options
 */
 function MySQL_Connections_Set( options ) {
   Unique.call( this, [], options );
@@ -61,40 +61,47 @@ function MySQL_Connections_Set( options ) {
 
 Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) {
   return {
-    _add_value: function( t, _connection ) {
-      var that     = this
-        , identity = this._make_key( _connection )
+    _add_value: function( t, connection ) {
+      var that          = this
+        , identity      = this._make_key( connection )
+        , mysql_options = extend( {}, this._options.mysql, connection.mysql )
       ;
       
-      // Do not trace _connection here, it would display passwords in logs
+      connection = extend( {}, connection );
+      
+      connection.mysql = extend( {}, mysql_options );
+      
+      // Hide paswword, preventing downstream traces from disclosing it in logs
+      if( connection.mysql.password ) connection.mysql.password = '***';
+      
+      // !! Do not trace connection before hiding password to prevent having passwords in traces
       de&&ug( that._get_name( '_add_value' ) + 'adding connection:', identity );
       
-      connect( function( error, connection ) {
-        if( error ) {
-          t.emit_nothing();
-        } else {
+      // Transactions are connection-based, shared by all pipelets sharing the same connection
+      connection.transactions = {};
+      
+      connection.connected = false;
+      
+      // Add value immediately but don't emit anything downstream until connected to MySQL server
+      that.__add_value( connection );
+      
+      t.emit_nothing();
+      
+      connect( function( error ) {
+        if( ! error ) {
           de&&ug( that._get_name( '_add_value' ) + 'Connected to:', identity, connection.mysql );
           
-          Super._add_value.call( that, t, connection );
+          connection.connected = true;
+          
+          // ToDo: add transaction options to __emit_add()
+          that.__emit_add( [ connection ] );
         }
       } );
       
       function connect( done ) {
-        var connection = clone( _connection );
+        var mysql_connection = mysql.createConnection( mysql_options );
         
-        // Transactions are connection-based, shared by all pipelets sharing the same connection
-        connection.transactions = {};
-        
-        connection.mysql = extend( {}, that._options.mysql, connection.mysql );
-        
-        var mysql_connection = mysql.createConnection( connection.mysql );
-        
-        // hide paswword, preventing downstream traces from disclosing it
-        if( connection.mysql.password ) {
-          connection.mysql.password = '***';
-        }
-        
-        de&&ug( that._get_name( 'connect' ) + 'id:', identity,'mysql:', connection.mysql );
+        de&&ug( that._get_name( 'connect' ) + identity, 'mysql:', connection.mysql );
         
         // Try to connect immediately
         mysql_connection.connect( function( error ) {
@@ -108,39 +115,44 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
           
           mysql_connection.toJSON = function() { return 'mysql connection' };
           
-          done( error, connection );
+          done( error );
         } );
         
         mysql_connection.on( 'error', function( error ) {
           log( that._get_name( 'on_error' ) + 'Warning on:', identity, ', error:', error );
           
-          // Do not remove in a transaction, as we want to make sure that removal takes immediate effect downstream
-          that._remove( [ connection ] );
+          connection.connected = false;
           
-          on_error( error, function( error, connection ) {
+          // Do not remove in a transaction, as we want to make sure that removal takes immediate effect downstream
+          that.__emit_remove( [ connection ] );
+          
+          on_error( error, _on_error );
+          
+          function _on_error( error ) {
             if( ! error ) {
               de&&ug( that._get_name( 'on_error' ) + 'Reconnected to:', identity, connection.mysql );
               
-              that.__add_value( connection );
+              connection.connected = true;
               
               that.__emit_add( [ connection ] );
             }
-          } );
-        } );
+          } // _on_error()
+        } ); // on error
         
         function on_error( error, done ) {
+          var timeout;
+          
           switch( error.code ) {
             case 'PROTOCOL_CONNECTION_LOST':
-              try_again();
             break;
             
             case 'ETIMEDOUT':
-              setTimeout( try_again, 2000 );
+              timeout = 2000;
             break;
             
             case 'ECONNREFUSED':
             case 'EHOSTUNREACH':
-              setTimeout( try_again, 10000 );
+              timeout = 10000;
             break;
             
             default:
@@ -149,10 +161,22 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
               
               log( that._get_name( 'on_error' ) + 'Fatal Error, code:', error.code, ', failed to (re)connect to:', identity, connection.mysql );
               
-              done( connection );
+              done( error );
+              
+            return;
           }
           
-          function try_again() { connect( done ) };
+          if( timeout ) {
+            connection.set_timeout = setTimeout( try_again, 10000 );
+          } else {
+            try_again();
+          }
+          
+          function try_again() {
+            delete connection.set_timeout;
+            
+            connect( done );
+          }
         } // on_error()
       } // connect()
     }, // _add_value()
@@ -160,15 +184,32 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
     _remove_value: function( t, connection ) {
       var i = this._a_index_of( connection );
       
-      if ( i != -1 ) {
+      if( i != -1 ) {
         connection = this.a[ i ];
         
-        // ToDo: handle transactions, either by terminating them now or waiting some time for them to terminate
+        // ToDo: handle SQL transactions, either by terminating them now or waiting some time for them to terminate
         
         connection.mysql_connection && connection.mysql_connection.destroy();
         
-        Super._remove_value.call( this, t, connection );
+        if( connection.set_timeout ) {
+          // We are in the process of waiting to reconnect to server on a timeout
+          clearTimeout( connection.set_timeout );
+          
+          delete connection.set_timeout;
+        }
+        
+        if( connection.connected ) {
+          connection.connected = false;
+          
+          Super._remove_value.call( this, t, connection );
+        } else {
+          // We have already emitted remove downstream or never emitted add downstream
+          that.__remove_value( connection );
+          
+          t.emit_nothing();
+        }
       } else {
+        // This should never happen because this is a unique set
         log( this._get_name( '_remove_value' ) + 'Error removing not found connection:', this._make_key( connection ) );
         
         t.emit_nothing();
@@ -182,7 +223,7 @@ rs.Singleton( 'mysql_connections', function( source, options ) {
 } );
 
 /* ------------------------------------------------------------------------------------------------
-   Converters
+    Converters
 */
 var converters = ( function() {
   var converters = {};
@@ -245,17 +286,17 @@ converters.set( 'json', {
 } ); // json
 
 /* ------------------------------------------------------------------------------------------------
-   mysql_read( table, columns, connection, options )
-   
-   Parameters:
-   - table (String): mysql table name
-   - columns (Array of Columns): see mysql() for full definition of Column
-   - connection (Pipelet): mysql_connections() output (will use the last added)
-   - options (optional Object): optional attributes:
-     - key (Array of Strings):  field names used to build WHERE clause for DELETE, may be aliased
-       by columns
-   
-   ToDo: implement trigger pipelet to pipe changes into process, generating a dataflow of changes to be read
+    mysql_read( table, columns, connection, options )
+    
+    Parameters:
+    - table (String): mysql table name
+    - columns (Array of Columns): see mysql() for full definition of Column
+    - connection (Pipelet): mysql_connections() output (will use the last added)
+    - options (optional Object): optional attributes:
+      - key (Array of Strings):  field names used to build WHERE clause for DELETE, may be aliased
+        by columns
+    
+    ToDo: implement trigger pipelet to pipe changes into process, generating a dataflow of changes to be read
 */
 function MySQL_Read( table, columns, connection, options ) {
   var that = this;
@@ -317,9 +358,9 @@ function MySQL_Read( table, columns, connection, options ) {
   } // add_receiver()
   
   /* --------------------------------------------------------------------------------------------
-     fetch( receiver, query )
-     
-     SELECT values from table, according to query
+      fetch( receiver, query )
+      
+      SELECT values from table, according to query
   */
   function fetch( receiver, query ) {
     var mysql_connection = that._mysql_connection;
@@ -589,15 +630,15 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
 Greedy.Build( 'mysql_read', MySQL_Read );
 
 /* ------------------------------------------------------------------------------------------------
-   mysql_write( table, columns, connection, options )
-   
-   Parameters:
-   - table (String): mysql table name
-   - columns (Array of Columns): see mysql() for full definition of Column
-   - connection (Pipelet): mysql_connections() output (will use the last added)
-   - options (optional Object): optional attributes:
-     - key (Array of Strings): the set of fileds that uniquely define objects and used to build
-       a WHERE clause for DELETE queries. May be aliased by columns
+    mysql_write( table, columns, connection, options )
+    
+    Parameters:
+    - table (String): mysql table name
+    - columns (Array of Columns): see mysql() for full definition of Column
+    - connection (Pipelet): mysql_connections() output (will use the last added)
+    - options (optional Object): optional attributes:
+      - key (Array of Strings): the set of fileds that uniquely define objects and used to build
+        a WHERE clause for DELETE queries. May be aliased by columns
 */
 function MySQL_Write( table, columns, connection, options ) {
   this._table            = table;
@@ -671,13 +712,13 @@ function null_key_attribute_error( position, attribute, value ) {
 
 Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   /* ----------------------------------------------------------------------------------------------
-     _add_waiter( method, parameters )
-     
-     Add a MySQL connection waiter for method with parameters
-     
-     Parameters:
-     - method (String): this instance method name e.g. "_add" or "_remove"
-     - parameters (Array): parameters to call method when MySQL connection is ready
+      _add_waiter( method, parameters )
+      
+      Add a MySQL connection waiter for method with parameters
+      
+      Parameters:
+      - method (String): this instance method name e.g. "_add" or "_remove"
+      - parameters (Array): parameters to call method when MySQL connection is ready
   */
   _add_waiter: function( method, parameters ) {
     var that = this;
@@ -690,9 +731,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   }, // _add_waiter()
   
   /* ----------------------------------------------------------------------------------------------
-     _call_waiters()
-     
-     Call MySQL connection waiters as long as MySQL connection is ready
+      _call_waiters()
+      
+      Call MySQL connection waiters as long as MySQL connection is ready
   */
   _call_waiters: function() {
     var name = de && this._get_name( '_call_waiter' ) + 'calling method:'
@@ -709,7 +750,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   }, // _call_waiters()
   
   /* ----------------------------------------------------------------------------------------------
-     _add( values, options )
+      _add( values, options )
   */
   _add: function( values, options ) {
     var that = this
@@ -817,21 +858,21 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     return this;
     
     /* --------------------------------------------------------------------------------------------
-       make_bulk_insert_list( values, emit_values )
-       
-       Make bulk insert list and make emit values, limited to actual columns.
-       
-       That way a read on the table should return the same values as emited values
-       
-       Missing attributes will be set as null unless part of the key in which case an error is
-       returned.
-       
-       There still may be some discrepencies if columns is not specified and some values have
-       undefined columns.
-       
-       Returns:
-         String: bulk_values
-         Object: error
+        make_bulk_insert_list( values, emit_values )
+        
+        Make bulk insert list and make emit values, limited to actual columns.
+        
+        That way a read on the table should return the same values as emited values
+        
+        Missing attributes will be set as null unless part of the key in which case an error is
+        returned.
+        
+        There still may be some discrepencies if columns is not specified and some values have
+        undefined columns.
+        
+        Returns:
+          String: bulk_values
+          Object: error
     */
     function make_bulk_insert_list( values, emit_values ) {
       var key     = that._options.key
@@ -905,7 +946,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   }, // _add()
   
   /* ----------------------------------------------------------------------------------------------
-     _remove( values, options )
+      _remove( values, options )
   */
   _remove: function( values, options ) {
     var that = this
@@ -1089,42 +1130,42 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
 } } ); // mysql_write()
 
 /* ------------------------------------------------------------------------------------------------
-   mysql( table, columns, options )
-   
-   Parameters:
-   - table (String): MySQL table name. The table must exist in MySQL and must have a primary key
-     that will be identical to the Pipelet's key unless aliased (see columns definition bellow).
-   
-   - columns (Array): defines all columns used for SELECT and INSERT, including primary key.
-     Each column is defined as:
-     - (String): column name
-     
-     - (Object): all attributes are optional except "id":
-       - id (String): MySQL column name
-       
-       - as (String): dataflow attribute name, default is the value of "id"
-       
-       - converter: to convert values of this column to/from mysql driver types. For
-         more information on further mysql driver type convertions with MySQL types see
-         https://www.npmjs.com/package/mysql#type-casting.
-         
-         A converter can be specified as a string for built-in converters or an Object:
-         - (String): a built-in converter, supported converters are:
-           - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
-         
-         - (Object): Providing the following functions:
-           - parse     (Function): parse( value ) -> value to mysql driver
-           - serialize (Function): serialize( <value from mysql driver> ) -> value
-   
-   - options (Object): optional attributes:
-     - connection (String): name of connection in configuration file, default is 'root'
-     
-     - configuration (String): filename of configuration file, default is ~/config.rs.json
-     
-     - mysql (Object): default mysql connection options, see mysql_connections()
-     
-     - key (Array of Strings): defines the primary key, if key columns are aliased as defined
-       above, alliased column names MUST be provided. default is [ 'id' ]
+    mysql( table, columns, options )
+    
+    Parameters:
+    - table (String): MySQL table name. The table must exist in MySQL and must have a primary key
+      that will be identical to the Pipelet's key unless aliased (see columns definition bellow).
+    
+    - columns (Array): defines all columns used for SELECT and INSERT, including primary key.
+      Each column is defined as:
+      - (String): column name
+      
+      - (Object): all attributes are optional except "id":
+        - id (String): MySQL column name
+        
+        - as (String): dataflow attribute name, default is the value of "id"
+        
+        - converter: to convert values of this column to/from mysql driver types. For
+          more information on further mysql driver type convertions with MySQL types see
+          https://www.npmjs.com/package/mysql#type-casting.
+          
+          A converter can be specified as a string for built-in converters or an Object:
+          - (String): a built-in converter, supported converters are:
+            - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
+          
+          - (Object): Providing the following functions:
+            - parse     (Function): parse( value ) -> value to mysql driver
+            - serialize (Function): serialize( <value from mysql driver> ) -> value
+    
+    - options (Object): optional attributes:
+      - connection (String): name of connection in configuration file, default is 'root'
+      
+      - configuration (String): filename of configuration file, default is ~/config.rs.json
+      
+      - mysql (Object): default mysql connection options, see mysql_connections()
+      
+      - key (Array of Strings): defines the primary key, if key columns are aliased as defined
+        above, alliased column names MUST be provided. default is [ 'id' ]
 */
 rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connection_terms = [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ];
