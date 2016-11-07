@@ -287,7 +287,7 @@ function MySQL_Read( table, columns, connection, options ) {
   };
   
   function add_connections( connections ) {
-    de&&ug( that._get_name( 'add_connections' ), table, connections.map( connection_id ) );
+    de&&ug( that._get_name( 'add_connections' ), connections.map( connection_id ), table );
     
     if ( connections.length ) {
       that._mysql_connection = connections[ connections.length - 1 ].mysql_connection;
@@ -297,7 +297,7 @@ function MySQL_Read( table, columns, connection, options ) {
   } // add_connections()
   
   function remove_connections( connections ) {
-    de&&ug( that._get_name( 'remove_connections' ), table, connections.map( connection_id ) );
+    de&&ug( that._get_name( 'remove_connections' ), connections.map( connection_id ), table );
     
     if( connections.length ) that._mysql_connection = null;
   } // remove_connections()
@@ -1129,6 +1129,9 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
 rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connection_terms = [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ];
   
+  // ToDo: move connections handling outside of this pipelet, as a stateless cache
+  // ToDo: handle multiple simultaneous connections for instant HA failover to another master
+  // ToDo: handle reads through slave servers, different from masters used for writes
   var connections = rs
     .configuration( { filepath: options.configuration } )
     
