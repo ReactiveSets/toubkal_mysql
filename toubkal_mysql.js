@@ -57,8 +57,6 @@ function MySQL_Connections_Set( options ) {
   Unique.call( this, [], options );
 } // MySQL_Connections_Set()
 
-// ToDo: share connections sharing unique sets of parameters
-
 Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) {
   return {
     _add_value: function( t, connection ) {
@@ -189,7 +187,13 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
         
         // ToDo: handle SQL transactions, either by terminating them now or waiting some time for them to terminate
         
-        connection.mysql_connection && connection.mysql_connection.destroy();
+        if( connection.mysql_connection ) {
+          connection.mysql_connection.destroy();
+          
+          connection.mysql_connection = null;
+        }
+        
+        de&&ug( this._get_name( '_remove_value' ), i, connection );
         
         if( connection.set_timeout ) {
           // We are in the process of waiting to reconnect to server on a timeout
@@ -204,7 +208,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
           Super._remove_value.call( this, t, connection );
         } else {
           // We have already emitted remove downstream or never emitted add downstream
-          that.__remove_value( connection );
+          this.__remove_value( connection );
           
           t.emit_nothing();
         }
@@ -219,7 +223,13 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
 } ).singleton(); // mysql_connections_set()
 
 rs.Singleton( 'mysql_connections', function( source, options ) {
-  return source.mysql_connections_set( options );
+  return source
+    .trace( 'mysql_connections in' )
+    .optimize( { tag: 'mysql_configuration' } )
+    .last()
+    .trace( 'mysql_connections last' )
+    .mysql_connections_set( options )
+  ;
 } );
 
 /* ------------------------------------------------------------------------------------------------
@@ -1167,6 +1177,28 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       - key (Array of Strings): defines the primary key, if key columns are aliased as defined
         above, alliased column names MUST be provided. default is [ 'id' ]
 */
+rs.Multiton( 'mysql_configuration',
+  function( options ) {
+    return '' + options.configuration + '#' + ( options.connection || 'root' ) + '#' + JSON.stringify( options.mysql );
+  },
+  
+  function( source, options ) {
+    var connection_terms = [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ];
+    
+    return source
+      .configuration( { filepath: options.configuration } )
+      
+      .filter( connection_terms )
+      
+      .pass_through( { fork_tag: 'mysql_configuration'  } )
+      
+      .mysql_connections( { mysql: options.mysql } )
+      
+      .filter( connection_terms )
+    ;
+  }
+); // mysql_configuration()
+
 rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connection_terms = [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ];
   
@@ -1174,25 +1206,15 @@ rs.Compose( 'mysql', function( source, table, columns, options ) {
   // ToDo: handle multiple simultaneous connections for instant HA failover to another master
   // ToDo: handle reads through slave servers, different from masters used for writes
   var connections = rs
-    .configuration( { filepath: options.configuration } )
+    .mysql_configuration( options )
     
-    .filter( connection_terms )
+    .pass_through()
     
-    // configuration() is a multiton, requires explicit disconnection when source disconnects
-    .remove_source_with( source )
-    
-    // mysql_connections() is a singleton
-    .remove_destination_with( source )
-    
-    .mysql_connections( { mysql: options.mysql } )
-    
-    .filter( connection_terms )
-    
-    // mysql_connections() is a singleton
+    // mysql_configuration() is a multiton, requires explicit disconnection when source disconnects
     .remove_source_with( source )
   ;
   
-  de&&ug( 'mysql(), options:', options );
+  de&&ug( 'mysql(),', table, columns.length, options );
   
   var input  = source.mysql_write( table, columns, connections, { name: options.name + '_write', key: options.key } )
     , output = input .mysql_read ( table, columns, connections, { name: options.name + '_read' , key: options.key } )
