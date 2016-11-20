@@ -224,10 +224,8 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
 
 rs.Singleton( 'mysql_connections', function( source, options ) {
   return source
-    .trace( 'mysql_connections in' )
     .optimize( { tag: 'mysql_configuration' } )
     .last()
-    .trace( 'mysql_connections last' )
     .mysql_connections_set( options )
   ;
 } );
