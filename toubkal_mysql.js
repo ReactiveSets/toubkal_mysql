@@ -61,7 +61,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
   return {
     _add_value: function( t, connection ) {
       var that          = this
-        , identity      = this._make_key( connection )
+        , identity      = this._identity( connection )
         , mysql_options = extend( {}, this._options.mysql, connection.mysql )
       ;
       
@@ -214,7 +214,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
         }
       } else {
         // This should never happen because this is a unique set
-        log( this._get_name( '_remove_value' ) + 'Error removing not found connection:', this._make_key( connection ) );
+        log( this._get_name( '_remove_value' ) + 'Error removing not found connection:', this._identity( connection ) );
         
         t.emit_nothing();
       }
