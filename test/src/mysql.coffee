@@ -116,19 +116,15 @@ describe 'mysql()', ->
           expect( _users.length ).to.be.eql 1
           expect( _users ).to.be.eql users._fetch_all()
       
-      mysql_users._output._fetch fetched, [ { login: 'joe' } ]
+      mysql_users._fetch_all fetched, [ { login: 'joe' } ]
     
-    it 'should throw an Error when querying a column not defined in schema', ( done ) ->
+    it 'should ignore column in query not defined in schema', ( done ) ->
       fetched = ( _users ) ->
-        expect( _users.length ).to.be.eql 1
-        expect( _users ).to.be.eql users._fetch_all()
+        check done, () ->
+          expect( _users.length ).to.be.eql 0
       
-      fetch = () ->
-        mysql_users._output._fetch fetched, [ { _login: 'joe' } ]
-      
-      expect( fetch ).to.throwException()
-      done()
-      
+      mysql_users._fetch_all fetched, [ { _login: 'joe' } ]
+    
     it 'should allow to remove previously added user', ( done ) ->
       input._remove [ joe ]
       

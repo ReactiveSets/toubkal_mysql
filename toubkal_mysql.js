@@ -551,8 +551,8 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
               
               
               if ( ! alias )
-                // ToDo: send an error instead of throwing
-                throw new Error( 'where_from_query() error, column from query not defined in schema: ' + property )
+                // ToDo: consider emitting an error because this fetch will effectively emit nothing after filtering
+                return false;
               ;
               
               // ToDo: use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
