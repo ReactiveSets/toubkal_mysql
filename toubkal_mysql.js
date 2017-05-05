@@ -39,7 +39,9 @@ var RS               = rs.RS
   , Query            = RS.Query
   , extend           = RS.extend
   , clone            = extend.clone
-  , log              = RS.log.bind( null, 'mysql' )
+  , RS_log           = RS.log
+  , pretty           = RS_log.pretty
+  , log              = RS_log.bind( null, 'mysql' )
   , de               = true
   , ug               = log
   , slice            = Array.prototype.slice
@@ -340,6 +342,8 @@ function MySQL_Read( table, columns, connection, options ) {
     
     if ( connections.length ) {
       that._mysql_connection = connections[ connections.length - 1 ].mysql_connection;
+      
+      // ToDo: process_columns() here
     }
     
     call_receivers();
@@ -492,6 +496,7 @@ function MySQL_Read( table, columns, connection, options ) {
         }
         
         if ( ! column )
+          // ToDo: send error to global error dataflow
           throw new Error( 'Undefined column id'
             + ' at position ' + i
             + ' in columns: ' + JSON.stringify( columns )
@@ -557,6 +562,7 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
             return translate_expression( connection, property, value );
             
             default:
+            // ToDo: emit error
             return false;
           }
         } )
@@ -776,7 +782,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( column_ids.length === 0 ) return emit(); // nothing
     
-    // ToDo: handle transactions in options._t.id
+    // ToDo: map Toubkal transactions to MySQL transactions
     
     var bulk_values = make_bulk_insert_list( values, emit_values );
     
@@ -960,17 +966,19 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     var that = this
       , emit_values = []
       , vl = values.length
-      , key = this._options.key
+      , key = this._key
       , kl = key.length
-      , name = de && this._get_name( '_remove' )
+      , name = de && get_name()
       , connection = this._mysql_connection
     ;
+    
+    // de&&ug( name + 'values:', pretty( values ), '\n  key:', key );
     
     if ( vl === 0 || kl === 0 ) return emit(); // propagate options
     
     if ( ! connection ) return this._add_waiter( '_remove', arguments );
     
-    // ToDo: handle transactions
+    // ToDo: map Toubkal transactions to MySQL transactions
     
     // DELETE FROM table WHERE conditions
     
@@ -1130,7 +1138,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     } // emit_error()
     
     function get_name() {
-      that._get_name( '_remove' )
+      return that._get_name( '_remove' )
     } // get_name()
   } // _remove()
   
