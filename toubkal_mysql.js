@@ -563,7 +563,7 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
             return escapeId( alias ) + ' = ' + escape( value );
             
             case '[object Array]': // expression
-            return translate_expression( connection, property, value );
+            return translate_expression( property, value );
             
             default:
             // ToDo: emit error
@@ -588,7 +588,7 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
   
   function not_empty( v ) { return !!v }
   
-  function translate_expression( connection, property, expression ) {
+  function translate_expression( property, expression ) {
     /*
       This is work in progress, don't translate to SQL for now.
       
