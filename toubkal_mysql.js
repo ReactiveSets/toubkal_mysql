@@ -24,7 +24,9 @@
 */
 'use strict';
 
-var mysql = require( 'mysql' );
+var mysql     = require( 'mysql' )
+  , sqlstring = require( 'sqlstring' )
+;
 
 module.exports = init;
 
@@ -381,7 +383,7 @@ function MySQL_Read( table, columns, connection, options ) {
       return add_receiver( arguments );
     }
     
-    var table = mysql_connection.escapeId( that._table )
+    var table = sqlstring.escapeId( that._table )
       , _name
       , where = ''
       , _columns
@@ -506,10 +508,10 @@ function MySQL_Read( table, columns, connection, options ) {
         
         columns_aliases[ a ] = column;
         
-        column = mysql_connection.escapeId( column );
+        column = sqlstring.escapeId( column );
         
         if ( as ) {
-          column += ' AS ' + mysql_connection.escapeId( as );
+          column += ' AS ' + sqlstring.escapeId( as );
         }
         
         _columns.push( column );
@@ -556,7 +558,7 @@ function where_from_query( query, connection, columns_aliases, parsers ) {
               ;
               
               // ToDo: use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
-            return connection.escapeId( alias ) + ' = ' + connection.escape( value );
+            return sqlstring.escapeId( alias ) + ' = ' + sqlstring.escape( value );
             
             case '[object Array]': // expression
             return translate_expression( connection, property, value );
@@ -793,7 +795,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       return this;
     }
     
-    var table = connection.escapeId( this._table )
+    var table = sqlstring.escapeId( this._table )
       , columns = '\n\n    ( ' + column_ids.map( escape_id ).join( ', ' ) + ' )'
       , sql = 'INSERT ' + table + columns + bulk_values
     ;
@@ -922,7 +924,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             v = parser( v );
           }
           
-          bulk_values += ( j ? ', ' : '( ' ) + connection.escape( v );
+          bulk_values += ( j ? ', ' : '( ' ) + sqlstring.escape( v );
         }
         
         bulk_values += ' )';
@@ -932,7 +934,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     } // make_bulk_insert_list()
     
     function escape_id( id ) {
-      return connection.escapeId( id );
+      return sqlstring.escapeId( id );
     }
     
     function emit() {
@@ -985,7 +987,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // Build WHERE conditions based on key
     var escaped_key = key.map( get_escape_column( this, connection ) )
       , where = make_where( this, connection, escaped_key )
-      , table = connection.escapeId( this._table )
+      , table = sqlstring.escapeId( this._table )
       , sql = 'DELETE FROM ' + table + where
     ;
     
@@ -1043,7 +1045,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       function escape_column( a ) {
         var column = columns_aliases[ a ];
         
-        if ( column ) return connection.escapeId( column );
+        if ( column ) return sqlstring.escapeId( column );
         
         throw new Error(
             'key attribute "' + a + '" is not defined in columns (after optional aliasing).'
@@ -1082,7 +1084,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             
             where += ( j ? ' AND ' : ' ' )
               + escaped_key[ j ]
-              + ' = ' + connection.escape( v )
+              + ' = ' + sqlstring.escape( v )
             ;
           }
           
@@ -1105,7 +1107,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             v = parser( v );
           }
           
-          where += ( i ? ', ' : ' ' ) + connection.escape( v );
+          where += ( i ? ', ' : ' ' ) + sqlstring.escape( v );
         }
         
         where += ' )';
