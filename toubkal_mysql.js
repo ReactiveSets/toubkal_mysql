@@ -449,7 +449,7 @@ function MySQL_Read( table, columns, connection, options ) {
       , where = ''
     ;
     
-    if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
+    if ( query ) where = where_from_query( query, columns_aliases, parsers );
     
     var sql = '  SELECT ' + processed_columns + '\n\n  FROM ' + table + where;
     
@@ -522,7 +522,7 @@ function MySQL_Read( table, columns, connection, options ) {
   } // fetch()
 } // MySQL_Read()
 
-function where_from_query( query, connection, columns_aliases, parsers ) {
+function where_from_query( query, columns_aliases, parsers ) {
   var where = query
     .map( function( or_term ) {
       //de&&ug( 'where_from_query(), or_term:', or_term );
