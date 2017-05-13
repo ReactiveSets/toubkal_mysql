@@ -981,7 +981,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // DELETE FROM table WHERE conditions
     
     // Build WHERE conditions based on key
-    var escaped_key = key.map( get_escape_column( this, connection ) )
+    var escaped_key = key.map( get_escape_column( this ) )
       , where = make_where( this, escaped_key )
       , table = this._table_escaped
       , sql = 'DELETE FROM ' + table + where
@@ -1033,7 +1033,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     return this;
     
-    function get_escape_column( that, connection ) {
+    function get_escape_column( that ) {
       var columns_aliases = that._columns_aliases;
       
       return escape_column;
