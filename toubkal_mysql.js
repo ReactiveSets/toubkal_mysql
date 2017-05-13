@@ -315,7 +315,7 @@ converters.set( 'json', {
 function MySQL_Read( table, columns, connection, options ) {
   var that = this;
   
-  this._table = table;
+  this._table_escaped = escapeId( table );
   this._mysql_connection = null;
   
   Greedy.call( this, options );
@@ -385,7 +385,7 @@ function MySQL_Read( table, columns, connection, options ) {
       return add_receiver( arguments );
     }
     
-    var table = escapeId( that._table )
+    var table = that._table_escaped
       , _name
       , where = ''
       , _columns
@@ -659,7 +659,7 @@ Greedy.Build( 'mysql_read', MySQL_Read );
         a WHERE clause for DELETE queries. May be aliased by columns
 */
 function MySQL_Write( table, columns, connection, options ) {
-  this._table            = table;
+  this._table_escaped    = escapeId( table );
   this._columns          = columns;
   this._mysql_connection = null;
   this._waiters          = [];
@@ -797,7 +797,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       return this;
     }
     
-    var table = escapeId( this._table )
+    var table = this._table_escaped
       , columns = '\n\n    ( ' + column_ids.map( escape_id ).join( ', ' ) + ' )'
       , sql = 'INSERT ' + table + columns + bulk_values
     ;
@@ -854,7 +854,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           engine: 'mysql',
           
           mysql: {
-            table   : that._table,
+            table   : that._table_escaped,
             code    : error.code,
             number  : error.errno,
             sqlState: error.sqlState,
@@ -989,7 +989,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // Build WHERE conditions based on key
     var escaped_key = key.map( get_escape_column( this, connection ) )
       , where = make_where( this, escaped_key )
-      , table = escapeId( this._table )
+      , table = this._table_escaped
       , sql = 'DELETE FROM ' + table + where
     ;
     
@@ -1016,7 +1016,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           engine: 'mysql',
           
           mysql: {
-            table   : that._table,
+            table   : that._table_escaped,
             code    : error.code,
             number  : error.errno,
             sqlState: error.sqlState,
