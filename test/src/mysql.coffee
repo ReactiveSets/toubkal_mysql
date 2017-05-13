@@ -125,6 +125,22 @@ describe 'mysql()', ->
       
       mysql_users._fetch_all fetched, [ { _login: 'joe' } ]
     
+    it 'should allow to update existing user', ( done ) ->
+      input._update [ [
+        joe
+        
+        {
+          email: 'joe@toubkal.rocks'
+          login: 'joe'
+        }
+      ] ]
+      
+      mysql_users._fetch_all ( _users ) ->
+        check done, () ->
+          expect( _users.length ).to.be.eql 1
+          joe = users._fetch_all()[ 0 ]
+          expect( _users ).to.be.eql [ joe ]
+    
     it 'should allow to remove previously added user', ( done ) ->
       input._remove [ joe ]
       
