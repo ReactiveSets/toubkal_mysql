@@ -43,6 +43,7 @@ var RS               = rs.RS
   , Query            = RS.Query
   , extend           = RS.extend
   , clone            = extend.clone
+  , object_diff      = RS.object_diff
   , RS_log           = RS.log
   , pretty           = RS_log.pretty
   , log              = RS_log.bind( null, 'mysql' )
@@ -51,7 +52,7 @@ var RS               = rs.RS
   , slice            = Array.prototype.slice
 ;
 
-/* ------------------------------------------------------------------------------------------------
+/* ----------------------------------------------------------------------------
     mysql_connections_set( options )
     
     Parameters:
@@ -236,7 +237,7 @@ rs.Singleton( 'mysql_connections', function( source, options ) {
   ;
 } );
 
-/* ------------------------------------------------------------------------------------------------
+/* ----------------------------------------------------------------------------
     Converters
 */
 var converters = ( function() {
@@ -299,18 +300,21 @@ converters.set( 'json', {
   }
 } ); // json
 
-/* ------------------------------------------------------------------------------------------------
-    mysql_read( table, columns, connection, options )
+/* ----------------------------------------------------------------------------
+    @pipelet mysql_read( table, columns, connection, options )
     
-    Parameters:
-    - table (String): mysql table name
-    - columns (Array of Columns): see mysql() for full definition of Column
-    - connection (Pipelet): mysql_connections() output (will use the last added)
-    - options (optional Object): optional attributes:
-      - key (Array of Strings):  field names used to build WHERE clause for DELETE, may be aliased
-        by columns
+    @parameters
+    - **table** (String): mysql table name
     
-    ToDo: implement trigger pipelet to pipe changes into process, generating a dataflow of changes to be read
+    - **columns** (Array of Columns): see mysql() for full definition of
+      Column.
+    
+    - **connection** (Pipelet): mysql_connections() output (will use the
+      last added).
+    
+    - **options** (optional Object): optional attributes:
+      - **key** (Array of Strings):  field names used to build *WHERE*
+        clause for *DELETE*, may be aliased by *columns*.
 */
 function MySQL_Read( table, columns, connection, options ) {
   var that = this
@@ -434,7 +438,7 @@ function MySQL_Read( table, columns, connection, options ) {
     receivers.push( slice.call( _arguments ) );
   } // add_receiver()
   
-  /* --------------------------------------------------------------------------------------------
+  /* --------------------------------------------------------------------------
       fetch( receiver, query )
       
       SELECT values from table, according to query
@@ -641,16 +645,22 @@ function where_from_query( query, columns_aliases, parsers ) {
 
 Greedy.Build( 'mysql_read', MySQL_Read );
 
-/* ------------------------------------------------------------------------------------------------
-    mysql_write( table, columns, connection, options )
+/* ----------------------------------------------------------------------------
+    @pipelet mysql_write( table, columns, connection, options )
     
-    Parameters:
-    - table (String): mysql table name
-    - columns (Array of Columns): see mysql() for full definition of Column
-    - connection (Pipelet): mysql_connections() output (will use the last added)
-    - options (optional Object): optional attributes:
-      - key (Array of Strings): the set of fileds that uniquely define objects and used to build
-        a WHERE clause for DELETE queries. May be aliased by columns
+    @parameters
+    - **table** (String): mysql table name.
+    
+    - **columns** (Array of Columns): see pipelet mysql() for full
+      definition of Column.
+    
+    - **connection** (Pipelet): pipelet mysql_connections() output
+      (will use the last added).
+    
+    - **options** (Object): optional attributes:
+      - **key** (Array of Strings): the set of fileds that uniquely define
+        objects and used to build a *WHERE* clause for *DELETE* queries.
+        May be aliased by columns.
 */
 function MySQL_Write( table, columns, connection, options ) {
   this._table_escaped    = escapeId( table );
@@ -723,14 +733,17 @@ function null_key_attribute_error( position, attribute, value ) {
 } // null_key_attribute_error()
 
 Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
-  /* ----------------------------------------------------------------------------------------------
-      _add_waiter( method, parameters )
+  /* --------------------------------------------------------------------------
+      @method MySQL_Write.._add_waiter( method, parameters )
       
-      Add a MySQL connection waiter for method with parameters
+      @short Add a MySQL connection waiter for method with parameters
       
-      Parameters:
-      - method (String): this instance method name e.g. "_add" or "_remove"
-      - parameters (Array): parameters to call method when MySQL connection is ready
+      @parameters
+      - **method** (String): this instance method name e.g. ```"_add"```
+        or ```"_remove"```.
+      
+      - **parameters** (Array): parameters to call method when MySQL
+        connection is ready.
   */
   _add_waiter: function( method, parameters ) {
     var that = this;
@@ -738,14 +751,12 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     de&&ug( this._get_name( '_add_waiter' ) + 'method:' + method );
     
     this._waiters.push( { method: method, parameters: parameters } );
-    
-    return this;
-  }, // _add_waiter()
+  }, // MySQL_Write.._add_waiter()
   
-  /* ----------------------------------------------------------------------------------------------
-      _call_waiters()
+  /* --------------------------------------------------------------------------
+      @method MySQL_Write.._call_waiters()
       
-      Call MySQL connection waiters as long as MySQL connection is ready
+      @short Call connection waiters as long as MySQL connection is ready
   */
   _call_waiters: function() {
     var name = de && this._get_name( '_call_waiter' ) + 'calling method:'
@@ -757,20 +768,20 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       this[ waiter.method ].apply( this, waiter.parameters );
     }
-    
-    return this;
-  }, // _call_waiters()
+  }, // MySQL_Write.._call_waiters()
   
-  /* ----------------------------------------------------------------------------------------------
-      _add( values, options )
+  /* --------------------------------------------------------------------------
+      @method MySQL_Write.._add( values, options )
+      
+      @short Add values using SQL *INSERT*
   */
   _add: function( values, options ) {
-    var that = this
-      , name = de && this._get_name( '_add' )
+    var that        = this
+      , name        = de && this._get_name( '_add' )
       , emit_values = []
     ;
     
-    if ( values.length === 0 ) return emit(); // nothing
+    if ( values.length == 0 ) return emit(); // nothing
     
     var connection = this._mysql_connection;
     
@@ -780,20 +791,19 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     
     if ( column_ids.length === 0 ) return emit(); // nothing
     
-    // ToDo: map Toubkal transactions to MySQL transactions
+    // ToDo: MySQL_Write.._add(), map Toubkal transactions to MySQL transactions
     
     var bulk_values = make_bulk_insert_list( values, emit_values );
     
     if ( typeof bulk_values !== 'string' ) { // this is an error object
       // ToDo: send error to error dataflow
-      emit_error( bulk_values );
-      
-      return this;
+      // ToDo: add tests for errors
+      return emit_error( bulk_values );
     }
     
-    var table = this._table_escaped
+    var table   = this._table_escaped
       , columns = '\n\n    ( ' + column_ids.map( escape_id ).join( ', ' ) + ' )'
-      , sql = 'INSERT ' + table + columns + bulk_values
+      , sql     = 'INSERT ' + table + columns + bulk_values
     ;
     
     de&&ug( name + 'sql:\n\n  ' + sql + '\n' );
@@ -867,43 +877,45 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       emit(); // valid values
     } )
     
-    return this;
-    
-    /* --------------------------------------------------------------------------------------------
+    /* ------------------------------------------------------------------------
         make_bulk_insert_list( values, emit_values )
         
         Make bulk insert list and make emit values, limited to actual columns.
         
-        That way a read on the table should return the same values as emited values
+        That way a read on the table should return the same values as emited
+        values.
         
-        Missing attributes will be set as null unless part of the key in which case an error is
-        returned.
+        Missing attributes will be set as null unless part of the key in
+        which case an error is returned.
         
-        There still may be some discrepencies if columns is not specified and some values have
-        undefined columns.
+        There still may be some discrepencies if columns is not specified
+        and some values have undefined columns.
         
         Returns:
           String: bulk_values
           Object: error
     */
     function make_bulk_insert_list( values, emit_values ) {
-      var key     = that._options.key
-        , columns = that._aliases
-        , parsers = that._parsers
+      var key         = that._options.key
+        , columns     = that._aliases
+        , parsers     = that._parsers
         , bulk_values = '\n\n  VALUES\n'
-        , vl = values.length
-        , cl = columns.length
+        , vl          = values.length
+        , cl          = columns.length
+        , i
+        , value
+        , emit_value
+        , c, v, parser
+        , j
       ;
       
-      for ( var i = -1; ++i < vl; ) {
-        var value = values[ i ]
-          , emit_value = emit_values[ i ] = {}
-          , c, v, parser
-        ;
+      for ( i = -1; ++i < vl; ) {
+        value      = values[ i ];
+        emit_value = emit_values[ i ] = {};
         
         bulk_values += ( i ? ',\n    ' : '\n    ' );
         
-        for ( var j = -1; ++j < cl; ) {
+        for ( j = -1; ++j < cl; ) {
           c = columns[ j ];
           v = value[ c ];
           
@@ -953,26 +965,28 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       error.values = values;
       
-      return that.__emit_add( [ error ], options );
+      that.__emit_add( [ error ], options );
     } // emit_error()
-  }, // _add()
+  }, // MySQL_Write.._add()
   
-  /* ----------------------------------------------------------------------------------------------
-      _remove( values, options )
+  /* --------------------------------------------------------------------------
+      @method MySQL_Write.._remove( values, options )
+      
+      @short Removes values using SQL *DELETE*
   */
   _remove: function( values, options ) {
-    var that = this
+    var that        = this
       , emit_values = []
-      , vl = values.length
-      , key = this._key
-      , kl = key.length
-      , name = de && get_name()
-      , connection = this._mysql_connection
+      , vl          = values.length
+      , key         = this._key
+      , kl          = key.length
+      , name        = de && get_name()
+      , connection  = this._mysql_connection
     ;
     
     // de&&ug( name + 'values:', pretty( values ), '\n  key:', key );
     
-    if ( vl === 0 || kl === 0 ) return emit(); // propagate options
+    if ( vl == 0 || kl == 0 ) return emit(); // propagate options
     
     if ( ! connection ) return this._add_waiter( '_remove', arguments );
     
@@ -981,10 +995,10 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     // DELETE FROM table WHERE conditions
     
     // Build WHERE conditions based on key
-    var escaped_key = key.map( get_escape_column( this ) )
-      , where = make_where( this, escaped_key )
-      , table = this._table_escaped
-      , sql = 'DELETE FROM ' + table + where
+    var escaped_key = this._escaped_key()
+      , where       = make_where( this, escaped_key )
+      , table       = this._table_escaped
+      , sql         = 'DELETE FROM ' + table + where
     ;
     
     de&&ug( name + 'sql:\n\n  ' + sql + '\n' );
@@ -1030,29 +1044,6 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       emit(); // valid values
     } )
-    
-    return this;
-    
-    function get_escape_column( that ) {
-      var columns_aliases = that._columns_aliases;
-      
-      return escape_column;
-      
-      function escape_column( a ) {
-        var column = columns_aliases[ a ];
-        
-        if ( column ) return escapeId( column );
-        
-        throw new Error(
-            'key attribute "' + a + '" is not defined in columns (after optional aliasing).'
-          + '\n\n  If a column has an alias (the "as" attribute) and is part of key, the alias is the name of the attribute that should be part of key.'
-          + '\n\n  key: [ ' + key.join( ', ' ) + ' ]'
-          + '\n\n  Columns: ' + JSON.stringify( that._columns, null, ' ' )
-          + '\n\n  Aliased columns: ' + JSON.stringify( columns_aliases, null, ' ' )
-          + '\n'
-        );
-      } // escape_column()
-    } // get_escape_column()
     
     function make_where( that, escaped_key ) {
       var where = '\n\n  WHERE'
@@ -1138,49 +1129,210 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
     function get_name() {
       return that._get_name( '_remove' )
     } // get_name()
-  } // _remove()
+  }, // MySQL_Write.._remove()
   
-  // ToDo: implement _update()
+  /* --------------------------------------------------------------------------
+      @method MySQL_Write.._update( updates, options )
+      
+      @short Update values using SQL *UPDATE*
+      
+      @description
+      Where condition based on old value.
+      
+      Only updates columns specified in new values.
+      
+      Using syntax:
+      ```sql
+        UPDATE table 
+          SET col_name1=expression
+          [, SET col_name2=expression]
+        WHERE where_condition
+      ```
+  */
+  _update: function( updates, options ) {
+    var that         = this
+      , emit_updates = []
+      , ul           = updates.length
+      , key          = this._key
+      , kl           = key.length
+      , name         = de && get_name()
+      , connection   = this._mysql_connection
+      , table        = this._table_escaped
+      , key_escaped  = this._escaped_key()
+    ;
+    
+    de&&ug( name + 'updates:', pretty( updates ), '\n  key:', key );
+    
+    if ( ul == 0 || kl == 0 ) return emit(); // propagate options
+    
+    if ( ! connection ) return this._add_waiter( '_update', arguments );
+    
+    updates.forEach( update );
+    
+    function update( update ) {
+      // ToDo: MySQL_Write..update(), map Toubkal transactions to MySQL transactions
+      
+      // UPDATE table SET col=expression WHERE condition
+      
+      // Build WHERE conditions based on key
+      var sql = 'UPDATE ' + table + make_set_values( update ) + make_where( key_escaped, update[ 0 ] );
+      
+      de&&ug( name + 'sql:\n\n  ' + sql + '\n' );
+      
+      // All added values should have been removed first, the order of operations is important for MySQL
+      connection.query( sql, function( error, results ) {
+        if ( error ) {
+          log( get_name() + 'unable to UPDATE', table, ', error:', error );
+          
+          switch( error.code ) {
+            case 'PROTOCOL_ENQUEUE_AFTER_FATAL_ERROR':
+            case 'ER_SERVER_SHUTDOWN':
+            case 'PROTOCOL_CONNECTION_LOST':
+              // We expect a new connection to execute this query later
+            return that._add_waiter( '_add', [ updates, options ] );
+          }
+          
+          emit_error( {
+            // ToDo: provide toubkal error code from MySQL error
+            
+            engine: 'mysql',
+            
+            mysql: {
+              table   : that._table_escaped,
+              code    : error.code,
+              number  : error.errno,
+              sqlState: error.sqlState,
+              index   : error.index,
+              message : error.message,
+              sql     : sql
+            }
+          } )
+          
+          return;
+        }
+        
+        emit_updates.push( update );
+        
+        // ToDo: if results.affectedRows != values.length, we have a problem
+        de&&ug( name + 'updated rows:', results.affectedRows );
+        
+        --ul || emit(); // valid updates
+      } )
+      
+      function make_set_values( update ) {
+        var values  = []
+          , parsers = that._parsers
+        ;
+        
+        object_diff( update[ 0 ], update[ 1 ], set );
+        
+        return ' SET ' + values.join( ', ' );
+        
+        function set( property, added ) {
+          var parser = parsers[ property ];
+          
+          if ( parser ) added = parser( added );
+          
+          values.push( escapeId( property ) + ' = ' + escape( added ) ) ;
+        }
+      } // make_set_values()
+    } // update()
+    
+    function make_where( key_escaped, value ) {
+      var where = '\n\n  WHERE'
+        , parsers = that._parsers
+        , i, a, v, parser
+      ;
+      
+      if ( kl > 1 ) {
+        where += ' (';
+        
+        for ( i = -1; ++i < kl; ) {
+          a = key[ i ];
+          v = value[ a ];
+          
+          if ( v == null ) // null or undefined
+            return emit_error( null_key_attribute_error( i, a, value ) );
+          
+          if ( parser = parsers[ a ] ) v = parser( v );
+          
+          where += ( i ? ' AND ' : ' ' )
+            + key_escaped[ i ]
+            + ' = ' + escape( v )
+          ;
+        }
+        
+        where += ' )';
+      
+      } else {
+        a = key[ 0 ];
+        
+        v = value[ a ];
+        
+        if ( v == null ) // null or undefined
+          return emit_error( null_key_attribute_error( 0, a, value ) );
+        
+        if ( parser = parsers[ a ] ) v = parser( v );
+        
+        where += ' ' + key_escaped[ 0 ] + ' = ' + escape( v );
+      }
+      
+      return where;
+    } // make_where()
+    
+    function emit() {
+      return that.__emit_update( emit_updates, options );
+    } // emit()
+    
+    function emit_error( error ) {
+      error.flow = 'error';
+      
+      // The error_flow is the flow of the first value
+      // This is questionable but most likely correct
+      // A sender's error handler will receive all the values
+      error.error_flow = updates[ 0 ][ 0 ].flow;
+      
+      error.operation = 'update';
+      
+      if ( options && options.sender ) {
+        error.sender = options.sender; // to allow routing of error back to sender
+      }
+      
+      error.values = updates;
+      
+      return that.__emit_add( [ error ], options );
+    } // emit_error()
+    
+    function get_name() {
+      return that._get_name( '_update' )
+    } // get_name()
+  }, // MySQL_Write.._update()
+  
+  _escaped_key: function() {
+    var that            = this
+      , columns_aliases = this._columns_aliases
+    ;
+    
+    return this._key.map( escape_column );
+    
+    function escape_column( a ) {
+      var column = columns_aliases[ a ];
+      
+      if ( column ) return escapeId( column );
+      
+      // ToDo: MySQL_Write.._escaped_key(): emit error instead of throwing
+      throw new Error(
+          'key attribute "' + a + '" is not defined in columns (after optional aliasing).'
+        + '\n\n  If a column has an alias (the "as" attribute) and is part of key, the alias is the name of the attribute that should be part of key.'
+        + '\n\n  key: [ ' + key.join( ', ' ) + ' ]'
+        + '\n\n  Columns: ' + JSON.stringify( that._columns, null, ' ' )
+        + '\n\n  Aliased columns: ' + JSON.stringify( columns_aliases, null, ' ' )
+        + '\n'
+      );
+    } // escape_column()
+  } // MySQL_Write.._escaped_key()
 } } ); // mysql_write()
 
-/* ------------------------------------------------------------------------------------------------
-    mysql( table, columns, options )
-    
-    Parameters:
-    - table (String): MySQL table name. The table must exist in MySQL and must have a primary key
-      that will be identical to the Pipelet's key unless aliased (see columns definition bellow).
-    
-    - columns (Array): defines all columns used for SELECT and INSERT, including primary key.
-      Each column is defined as:
-      - (String): column name
-      
-      - (Object): all attributes are optional except "id":
-        - id (String): MySQL column name
-        
-        - as (String): dataflow attribute name, default is the value of "id"
-        
-        - converter: to convert values of this column to/from mysql driver types. For
-          more information on further mysql driver type convertions with MySQL types see
-          https://www.npmjs.com/package/mysql#type-casting.
-          
-          A converter can be specified as a string for built-in converters or an Object:
-          - (String): a built-in converter, supported converters are:
-            - "uuid_b16": converts a UUID to/from MySQL BINARY(16)
-          
-          - (Object): Providing the following functions:
-            - parse     (Function): parse( value ) -> value to mysql driver
-            - serialize (Function): serialize( <value from mysql driver> ) -> value
-    
-    - options (Object): optional attributes:
-      - connection (String): name of connection in configuration file, default is 'root'
-      
-      - configuration (String): filename of configuration file, default is ~/config.rs.json
-      
-      - mysql (Object): default mysql connection options, see mysql_connections()
-      
-      - key (Array of Strings): defines the primary key, if key columns are aliased as defined
-        above, alliased column names MUST be provided. default is [ 'id' ]
-*/
 rs.Multiton( 'mysql_configuration',
   function( options ) {
     return '' + options.configuration + '#' + ( options.connection || 'root' ) + '#' + JSON.stringify( options.mysql );
@@ -1203,6 +1355,54 @@ rs.Multiton( 'mysql_configuration',
   }
 ); // mysql_configuration()
 
+/* ----------------------------------------------------------------------------
+    @pipelet mysql( table, columns, options )
+    
+    @parameters
+    - **table** (String): MySQL table name. The table must exist in MySQL and
+      must have a primary key that will be identical to the Pipelet's key
+      unless aliased (see columns definition bellow).
+    
+    - **columns** (Array): defines all columns used for SELECT and INSERT,
+      including primary key. Each column is defined as:
+      - (String): column name
+      
+      - (Object): all attributes are optional except "id":
+        - **id** (String): MySQL column name.
+        
+        - **as** (String): dataflow attribute name, default is the value of "id",
+        
+        - **converter**: to convert values of this column to/from mysql driver
+          types. For more information on further mysql driver type convertions
+          with MySQL types see
+          https://www.npmjs.com/package/mysql#type-casting.
+          
+          A converter can be specified as a string for built-in converters or
+          an Object:
+          - (String): a built-in converter, supported converters are:
+            - **"uuid_b16"**: converts a UUID to/from MySQL BINARY(16)
+          
+          - (Object): Providing the following functions:
+            - **parse** (Function):
+              ```parse( value ) -> value to mysql driver```
+            
+            - **serialize** (Function):
+              ```serialize( <value from mysql driver> ) -> value```
+    
+    - **options** (Object): optional attributes:
+      - **connection** (String): name of connection in configuration file,
+        default is ```"root"```.
+      
+      - **configuration** (String): filename of configuration file, default
+        is ```~/config.rs.json```.
+      
+      - **mysql** (Object): default mysql connection options, see
+        @@pipelet:mysql_connections().
+      
+      - **key** (Array of Strings): defines the primary key, if key columns
+        are aliased as defined above, alliased column names MUST be provided.
+        default is ```[ 'id' ]```.
+*/
 rs.Compose( 'mysql', function( source, table, columns, options ) {
   var connection_terms = [ { id: 'toubkal_mysql#' + ( options.connection || 'root' ) } ];
   
