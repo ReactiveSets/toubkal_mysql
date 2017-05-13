@@ -313,14 +313,19 @@ converters.set( 'json', {
     ToDo: implement trigger pipelet to pipe changes into process, generating a dataflow of changes to be read
 */
 function MySQL_Read( table, columns, connection, options ) {
-  var that = this;
+  var that = this
+    , receivers = []
+    , _name
+    , parsers = {}
+    , serializers = []
+    , columns_aliases = []
+    , processed_columns = process_columns( columns, parsers, serializers, columns_aliases )
+  ;
   
   this._table_escaped = escapeId( table );
   this._mysql_connection = null;
   
   Greedy.call( this, options );
-  
-  var receivers = [];
   
   this._add_input(
     connection,
@@ -341,13 +346,69 @@ function MySQL_Read( table, columns, connection, options ) {
     update_query_string: function() {}
   };
   
+  function process_columns( columns, parsers, serializers, columns_aliases ) {
+    var i = -1
+      , l = columns.length
+      , processed_columns = []
+    ;
+    
+    // !! Do not use columns.map() because it hides user bugs, skipping undefined values
+    while( ++i < l ) {
+      var column    = columns[ i ]
+        , a         = column
+        , id
+        , as        = null
+        , converter
+      ;
+      
+      if ( typeof column === 'object' && column ) {
+        id = column.id;
+        as = column.as;
+        converter = column.converter;
+        
+        column = id;
+        a = as || id;
+        
+        if ( converter ) {
+          converter = converters.get( converter );
+          
+          parsers[ a ] = converter.parse;
+          serializers.push( { id: a, serialize: converter.serialize } );
+        }
+      }
+      
+      if ( ! column )
+        // ToDo: send error to global error dataflow
+        throw new Error( 'Undefined column id'
+          + ' at position ' + i
+          + ' in columns: ' + JSON.stringify( columns )
+          + ' of table: '   + table
+        )
+      ;
+      
+      columns_aliases[ a ] = column;
+      
+      column = escapeId( column );
+      
+      if ( as ) {
+        column += ' AS ' + escapeId( as );
+      }
+      
+      processed_columns.push( column );
+    } // while there are columns
+    
+    return processed_columns.join( '\n       , ' );
+  } // process_columns()
+  
+  function name() {
+    return _name || ( _name = that._get_name( 'fetch' ) );
+  } // name()
+  
   function add_connections( connections ) {
     de&&ug( that._get_name( 'add_connections' ), connections.map( connection_id ), table );
     
     if ( connections.length ) {
       that._mysql_connection = connections[ connections.length - 1 ].mysql_connection;
-      
-      // ToDo: process_columns() here
     }
     
     call_receivers();
@@ -381,25 +442,16 @@ function MySQL_Read( table, columns, connection, options ) {
   function fetch( receiver, query ) {
     var mysql_connection = that._mysql_connection;
     
-    if ( ! mysql_connection ) {
-      return add_receiver( arguments );
-    }
+    if ( ! mysql_connection ) return add_receiver( arguments );
     
     var table = that._table_escaped
       , _name
       , where = ''
-      , _columns
-      , columns_aliases = []
-      , parsers = {}
-      , serializers = []
     ;
-    
-    // Get columns string and fill-up columns_aliases[]
-    _columns = process_columns( columns, parsers, serializers, columns_aliases );
     
     if ( query ) where = where_from_query( query, mysql_connection, columns_aliases, parsers );
     
-    var sql = '  SELECT ' + _columns + '\n\n  FROM ' + table + where;
+    var sql = '  SELECT ' + processed_columns + '\n\n  FROM ' + table + where;
     
     de&&ug( name() + 'sql:\n\n' + sql + '\n' );
     
@@ -467,64 +519,6 @@ function MySQL_Read( table, columns, connection, options ) {
       
       receiver( results, true );
     } )
-    
-    function process_columns( columns, parsers, serializers, columns_aliases ) {
-      var i = -1
-        , l = columns.length
-        , _columns = []
-      ;
-      
-      // !! Do not use columns.map() because it hides user bugs, skipping undefined values
-      while( ++i < l ) {
-        var column    = columns[ i ]
-          , a         = column
-          , id
-          , as        = null
-          , converter
-        ;
-        
-        if ( typeof column === 'object' && column ) {
-          id = column.id;
-          as = column.as;
-          converter = column.converter;
-          
-          column = id;
-          a = as || id;
-          
-          if ( converter ) {
-            converter = converters.get( converter );
-            
-            parsers[ a ] = converter.parse;
-            serializers.push( { id: a, serialize: converter.serialize } );
-          }
-        }
-        
-        if ( ! column )
-          // ToDo: send error to global error dataflow
-          throw new Error( 'Undefined column id'
-            + ' at position ' + i
-            + ' in columns: ' + JSON.stringify( columns )
-            + ' of table: '   + table
-          )
-        ;
-        
-        columns_aliases[ a ] = column;
-        
-        column = escapeId( column );
-        
-        if ( as ) {
-          column += ' AS ' + escapeId( as );
-        }
-        
-        _columns.push( column );
-      } // while there are columns
-      
-      return _columns.join( '\n       , ' );
-    } // process_columns()
-    
-    function name() {
-      return _name || ( _name = that._get_name( 'fetch' ) );
-    } // name()
   } // fetch()
 } // MySQL_Read()
 
