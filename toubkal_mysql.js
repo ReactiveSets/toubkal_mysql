@@ -98,7 +98,6 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
           
           connection.connected = true;
           
-          // ToDo: add transaction options to __emit_add()
           that.__emit_add( [ connection ] );
         }
       } );
@@ -459,6 +458,7 @@ function MySQL_Read( table, columns, connection, options ) {
     
     de&&ug( name() + 'sql:\n\n' + sql + '\n' );
     
+    // ToDo: use query.on(), see https://github.com/mysqljs/mysql#streaming-query-rows
     mysql_connection.query( sql, function( error, results, fields ) {
       if ( error ) {
         log( name() + 'unable to read', table, ', error:', error );
