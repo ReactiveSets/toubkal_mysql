@@ -67,7 +67,7 @@ describe 'mysql()', ->
           id         : user.id
           email      : user.email
           login      : user.login
-          create_time: user.timestamp
+          create_time: user.create_time || user.timestamp
         } ) )
         
         .set []
@@ -130,16 +130,27 @@ describe 'mysql()', ->
         joe
         
         {
-          email: 'joe@toubkal.rocks'
-          login: 'joe'
+          id         : joe.id
+          email      : 'joe@toubkal.rocks'
+          login      : 'joe'
+          create_time: joe.create_time
         }
       ] ]
       
       mysql_users._fetch_all ( _users ) ->
         check done, () ->
           expect( _users.length ).to.be.eql 1
-          joe = users._fetch_all()[ 0 ]
-          expect( _users ).to.be.eql [ joe ]
+          
+          new_user = _users[ 0 ]
+          
+          expect( new_user ).to.be.eql {
+            id         : joe.id
+            email      : 'joe@toubkal.rocks'
+            login      : 'joe'
+            create_time: joe.create_time
+          }
+          
+          joe = new_user
     
     it 'should allow to remove previously added user', ( done ) ->
       input._remove [ joe ]
