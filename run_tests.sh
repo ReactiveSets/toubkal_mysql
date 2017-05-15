@@ -15,6 +15,8 @@
 #
 # Tests results are then available in test.out
 #
+cd `dirname $0`
+
 if [ "$1" = "" ]; then
   npm test > test.out || echo " test failed"
 else
