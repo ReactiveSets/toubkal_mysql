@@ -1,7 +1,7 @@
 {
   "name": "toubkal_mysql",
 
-  "version": "0.1.19",
+  "version": "0.1.20",
 
   "description": "Reactive MySQL library",
 
@@ -21,8 +21,8 @@
   },
   
   "dependencies": {
-    "sqlstring": "2.2.0",
-    "mysql": "2.13.0"
+    "sqlstring": "2.3.0",
+    "mysql": "2.15.0"
   },
   
   "devDependencies": {
