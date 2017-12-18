@@ -27,7 +27,7 @@
   
   "devDependencies": {
     "toubkal"              : "latest",
-    "coffee-script"        : "1.12.6",
+    "coffee-script"        : "1.12.7",
     "source-map-support"   : "0.4.15",
     "mocha"                : "3.4.2",
     "expect.js"            : "0.3.1",
