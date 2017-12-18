@@ -1173,9 +1173,14 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       // ToDo: MySQL_Write..update(), map Toubkal transactions to MySQL transactions
       
       // UPDATE table SET col=expression WHERE condition
+      var set_values = make_set_values( update );
+      
+      if( set_values.length == 0 ) { // there are no values to update
+        return --ul || emit(); // emit valid updates if this was the last one
+      }
       
       // Build WHERE conditions based on key
-      var sql = 'UPDATE ' + table + make_set_values( update ) + make_where( key_escaped, update[ 0 ] );
+      var sql = 'UPDATE ' + table + ' SET ' + set_values.join( ', ' ) + make_where( key_escaped, update[ 0 ] );
       
       de&&ug( name + 'sql:\n\n  ' + sql + '\n' );
       
@@ -1208,13 +1213,13 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             }
           } )
           
-          return;
+          return
+        } else {
+          emit_updates.push( update );
+          
+          // ToDo: if results.affectedRows != values.length, we have a problem
+          de&&ug( name + 'updated rows:', results.affectedRows );
         }
-        
-        emit_updates.push( update );
-        
-        // ToDo: if results.affectedRows != values.length, we have a problem
-        de&&ug( name + 'updated rows:', results.affectedRows );
         
         --ul || emit(); // valid updates
       } )
@@ -1226,7 +1231,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         
         object_diff( update[ 0 ], update[ 1 ], set );
         
-        return ' SET ' + values.join( ', ' );
+        return values;
         
         function set( property, added ) {
           var parser = parsers[ property ];
@@ -1300,6 +1305,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       
       error.values = updates;
       
+      // ToDo: emit in a transaction if there are emit_updates and options is not in an ongoing transaction
       return that.__emit_add( [ error ], options );
     } // emit_error()
     
