@@ -34,4 +34,4 @@ test=test/lib/$test.js
 echo tests $test
 echo
 echo "Run tests"
-mocha -R mocha-unfunk-reporter $test
+mocha --exit -R mocha-unfunk-reporter $test
