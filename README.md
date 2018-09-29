@@ -4,8 +4,6 @@
 
 [![npm version](https://badge.fury.io/js/toubkal_mysql.svg)](http://badge.fury.io/js/toubkal_mysql)
 
-[![Dependency Status](https://gemnasium.com/badges/github.com/ReactiveSets/toubkal_mysql.svg)](https://gemnasium.com/github.com/ReactiveSets/toubkal_mysql)
-
 API Stability: Unstable (API is under active development)
 
 ## Install
@@ -155,7 +153,7 @@ Parameters:
 
   The MIT License (MIT)
 
-  Copyright (c) 2015-2016, Reactive Sets
+  Copyright (c) 2015-2018, Reactive Sets
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
