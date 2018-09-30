@@ -45,37 +45,36 @@ rs = require 'toubkal'
 require( '../../toubkal_mysql.js' )( rs )
 
 RS = rs.RS
+uuid_v4 = RS.uuid.v4
 
 # ----------------------------------------------------------------------------------------------
 # subclass test suite
 # -------------------
 
 describe 'mysql()', ->
-  console.log 'describe'
+  input          = null
+  users          = null
+  mysql_users    = null
+  joe            = null
   
-  describe 'mysql( user, connection )', ->
-    input       = null
-    users       = null
-    mysql_users = null
-    joe         = null
-    
+  describe 'user table', ->
     it 'should be a Pipelet', ->
       input = rs.events_metadata() # add id as uuid_v4 and timestamp
       
       users = input
-        .map( ( ( user ) -> return {
+        .map( ( user ) -> {
           id         : user.id
           email      : user.email
           login      : user.login
           create_time: user.create_time || user.timestamp
-        } ) )
+        } )
         
         .set []
       
       mysql_users = users
         .mysql(
           'toubkal_unit_tests.user'
-        
+          
           [
             { id: 'id', converter: 'uuid_b16' }
             'email'
@@ -91,7 +90,7 @@ describe 'mysql()', ->
           }
         )
       
-      expect( mysql_users ).to.be.a RS.Pipelet
+      expect( mysql_users    ).to.be.a RS.Pipelet
     
     it 'should be empty', ( done ) ->
       mysql_users._fetch_all ( users ) ->
@@ -158,3 +157,146 @@ describe 'mysql()', ->
       mysql_users._fetch_all ( _users ) ->
         check done, () ->
           expect( _users.length ).to.be.eql 0
+  
+  describe 'user and project table, with foreign key countraint', ->
+    it 'should create a project and a user', ( done ) ->
+      rs.Singleton( 'database', ( source, options ) ->
+        
+        return source
+          
+          .trace( "database in" )
+          
+          .dispatch( [ { id: "users" }, { id: "projects" } ], ( source, options ) ->
+            if this.id == "users"
+              source
+                .flow( "users" )
+                .through( input )
+              
+              mysql_users
+                .set_flow( "users" )
+            
+            else
+              source
+                .flow( "projects" )
+                
+                .mysql(
+                  'toubkal_unit_tests.project'
+                  
+                  [
+                    { id: 'id', converter: 'uuid_b16' }
+                    { id: 'creator_id', converter: 'uuid_b16' }
+                    'name'
+                    'create_time'
+                  ]
+                  
+                  {
+                    configuration:
+                      if process.env.TRAVIS
+                      then './test/fixtures/travis.config.json'
+                      else null
+                  }
+                )
+                
+                .set_flow( "projects" )
+          )
+      )
+      
+      jack = null
+      
+      rs
+        .set( [ { name: "Great Project" } ] )
+        
+        .events_metadata()
+        
+        .map( ( project ) -> {
+          flow       : "projects"
+          id         : project.id
+          creator_id : project.creator_id
+          name       : project.name
+          create_time: project.create_time || project.timestamp
+        } )
+        
+        .fetch( mysql_users, ( project ) -> [ { id: project.creator_id } ] )
+        
+        .map( ( fetched ) ->
+          operation = fetched.operation
+          user      = fetched.values[ 0 ]
+          adds      = []
+          
+          if operation == "create"
+            unless user
+              user = jack = { flow: "users", id: uuid_v4(), email: "jack@example.com", login: "jack" }
+              fetched.source.creator_id = user.id
+              
+              adds.push( user )
+          
+          adds.push( fetched.source )
+          
+          { adds: adds }
+        )
+        
+        .emit_operations()
+        
+        .database()
+      
+      rs
+        .once( 20 )
+        
+        .fetch( rs.database() )
+        
+        .map( ( fetched ) -> check done, () ->
+          fetched = fetched.values
+          
+          expect( fetched ).to.be.eql [
+            {
+              flow       : "users"
+              id         : jack.id
+              email      : "jack@example.com"
+              login      : "jack"
+              create_time: fetched[ 0 ].create_time
+            }
+            
+            {
+              flow       : "projects"
+              id         : fetched[ 1 ].id
+              creator_id : jack.id
+              name       : "Great Project"
+              create_time: fetched[ 1 ].create_time
+            }
+          ]
+        )
+    
+    it 'should remove a project and a user', ( done ) ->
+      rs
+        .database()
+        
+        .greedy()
+        
+        ._output
+        
+        .once( 'remove', () ->
+          
+          rs
+            .once()
+            
+            .fetch( rs.database() )
+            
+            .alter( ( fetched ) -> check done, () ->
+              expect( fetched.values ).to.be.eql []
+            )
+        )
+      
+      rs
+        .once()
+        
+        .fetch( rs.database() )
+        
+        .map( ( fetched ) ->
+          fetched = fetched.values
+          
+          { removes: [ fetched[ 1 ], fetched[ 0 ] ] }
+        )
+        
+        .emit_operations()
+        
+        .database()
