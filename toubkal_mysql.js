@@ -423,8 +423,6 @@ function MySQL_Read( table, columns, connection, options ) {
     if( connections.length ) that._mysql_connection = null;
   } // remove_connections()
   
-  function connection_id( connection ) { return connection.id; }
-  
   function call_receivers() {
     while ( that._mysql_connection && receivers.length ) {
       fetch.apply( null, receivers.shift() );
@@ -677,14 +675,20 @@ function MySQL_Write( table, columns, connection, options ) {
   
   columns.forEach( add_column );
   
-  connection
-    .greedy()
-    ._output
-    .on( "add", add_connections )
-    .on( "remove", remove_connections )
-  ;
-  
   Greedy.call( this, options );
+  
+  this._add_input(
+    connection,
+    
+    Greedy.Input,
+    
+    options.name + '-connection',
+    
+    {
+      _add   : add_connections,
+      _remove: remove_connections
+    }
+  );
   
   // return this; // if called with new
   // return undefined; // if called without new
@@ -710,6 +714,8 @@ function MySQL_Write( table, columns, connection, options ) {
   function add_connections( connections ) {
     var l = connections.length;
     
+    de&&ug( that._get_name( 'add_connections' ), connections.map( connection_id ), table );
+    
     if ( l ) {
       that._mysql_connection = connections[ l - 1 ].mysql_connection;
       
@@ -718,6 +724,8 @@ function MySQL_Write( table, columns, connection, options ) {
   } // add_connections()
   
   function remove_connections( connections ) {
+    de&&ug( that._get_name( 'remove_connections' ), connections.map( connection_id ), table );
+    
     if( connections.length ) that._connection = null;
   } // remove_connections()
 } // MySQL_Write()
@@ -1339,6 +1347,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
   } // MySQL_Write.._escaped_key()
 } } ); // mysql_write()
 
+// connection_id(): get id from connection Object
+function connection_id( connection ) {
+  return connection.id;
+} // connection_id()
+
 rs.Multiton( 'mysql_configuration',
   function( options ) {
     return '' + options.configuration + '#' + ( options.connection || 'root' ) + '#' + JSON.stringify( options.mysql );
@@ -1350,9 +1363,14 @@ rs.Multiton( 'mysql_configuration',
     return source
       .configuration( { filepath: options.configuration } )
       
-      .filter( connection_terms )
-      
+      /*
+        Because mysql_connections() is a singleton, and this is a multiton,
+        there may be multiple concurrent inputs to mysql_connections() that
+        therefore need to be synchronized.
+      */
       .pass_through( { fork_tag: 'mysql_configuration'  } )
+      
+      .filter( connection_terms )
       
       .mysql_connections( { mysql: options.mysql } )
       
