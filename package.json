@@ -1,48 +1,38 @@
 {
   "name": "toubkal_mysql",
-
-  "version": "0.1.21",
-
-  "description": "Reactive MySQL library",
-
+  "version": "0.1.22",
+  "description": "Reactive MySQL library for Toubkal",
   "main": "toubkal_mysql.js",
-
   "repository": {
     "type": "git",
     "url": "git://github.com/ReactiveSets/toubkal_mysql.git"
   },
-
   "author": "Reactive Sets",
-
   "license": "MIT",
-
   "bugs": {
     "url": "https://github.com/ReactiveSets/toubkal_mysql/issues"
   },
-  
   "dependencies": {
     "sqlstring": "2.3.0",
     "mysql": "2.15.0"
   },
-  
   "devDependencies": {
-    "toubkal"              : "latest",
-    "coffee-script"        : "1.12.7",
-    "source-map-support"   : "0.5.0",
-    "mocha"                : "4.0.1",
-    "expect.js"            : "0.3.1",
+    "toubkal": "latest",
+    "coffee-script": "1.12.7",
+    "source-map-support": "0.5.0",
+    "mocha": "4.0.1",
+    "expect.js": "0.3.1",
     "mocha-unfunk-reporter": "0.4.0"
   },
-
   "scripts": {
-    "postinstall": "ln -s ../. node_modules/toubkal_mysql || true",
-    "test"       : "sh test/bin/tests.sh"
+    "preinstall": "node node_modules_self_reference.js remove",
+    "postinstall": "node node_modules_self_reference.js add",
+    "test": "sh test/bin/tests.sh"
   },
-
   "keywords": [
     "mysql",
+    "toubkal",
     "reactive",
-    "dataflow",
-    "functional reactive programming"
+    "dataflow"
   ]
 }
