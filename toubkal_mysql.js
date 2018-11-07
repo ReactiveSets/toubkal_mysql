@@ -259,7 +259,7 @@ converters.set( 'uuid_b16', {
   },
   
   serialize: function( id ) {
-    return uuid.unparse( id );
+    return id && uuid.unparse( id );
   }
 } ); // uuid_b16
 
