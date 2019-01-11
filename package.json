@@ -25,7 +25,7 @@
     "mocha": "^5.2.0",
     "mocha-unfunk-reporter": "0.4.0",
     "source-map-support": "0.5.0",
-    "toubkal": "^0.3.15"
+    "toubkal": "^0.3.19"
   },
   "scripts": {
     "preinstall": "node node_modules_self_reference.js remove",
