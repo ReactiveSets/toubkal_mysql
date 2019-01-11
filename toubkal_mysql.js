@@ -254,26 +254,31 @@ var converters = ( function() {
 } )(); // converters
 
 converters.set( 'uuid_b16', {
+  // to mysql
   parse: function( id ) {
     return uuid.parse( id, new Buffer( 16 ) );
   },
   
+  // from mysql
   serialize: function( id ) {
     return id && uuid.unparse( id );
   }
 } ); // uuid_b16
 
 converters.set( 'timestamp_t3', {
+  // to mysql
   parse: function( t ) {
     return t;
   },
   
+  // from mysql
   serialize: function( t ) {
     return timestamp_string( new Date( t ) );
   }
 } ); // timestamp_t3
 
 converters.set( 'json', {
+  // to mysql
   parse: function( json ) {
     var text = JSON.stringify( json );
     
@@ -282,6 +287,7 @@ converters.set( 'json', {
     return text;
   },
   
+  // from mysql
   serialize: function( text ) {
     try {
       var json = JSON.parse( text );
