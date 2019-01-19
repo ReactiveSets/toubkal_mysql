@@ -42,6 +42,8 @@ var RS               = rs.RS
   , Unique           = RS.Unique
   , Query            = RS.Query
   , extend           = RS.extend
+  , class_of         = RS.class_of
+  , is_array         = RS.is_array
   , clone            = extend.clone
   , object_diff      = RS.object_diff
   , RS_log           = RS.log
@@ -368,12 +370,21 @@ function MySQL_Read( table, columns, connection, options ) {
         , id
         , as        = null
         , converter
+        , geometry
       ;
       
       if ( typeof column === 'object' && column ) {
         id = column.id;
         as = column.as;
         converter = column.converter;
+        
+        geometry = column.geometry;
+        
+        if ( geometry && typeof( geometry ) != "string" ) {
+          geometry = "Text";
+        }
+        
+        // geometry must be one of "Text" or "GeoJSON"
         
         column = id;
         a = as || id;
@@ -398,6 +409,10 @@ function MySQL_Read( table, columns, connection, options ) {
       columns_aliases[ a ] = column;
       
       column = escapeId( column );
+      
+      if ( geometry ) {
+        column = "ST_As" + geometry + "( " + column + " )";
+      }
       
       if ( as ) {
         column += ' AS ' + escapeId( as );
@@ -546,9 +561,9 @@ function where_from_query( query, columns_aliases, parsers ) {
             return false;
           }
           
-          switch ( toString.call( value ) ) {
-            case '[object Number]':
-            case '[object String]':
+          switch ( class_of( value ) ) {
+            case 'Number':
+            case 'String':
               // scalar values where strict equality is desired
               
               if ( parser = parsers[ property ] ) value = parser( value );
@@ -564,8 +579,8 @@ function where_from_query( query, columns_aliases, parsers ) {
               // ToDo: use "property" COLLATE latin1_bin = value, or utf8_bin for case-sensitive comparison
             return escapeId( alias ) + ' = ' + escape( value );
             
-            case '[object Array]': // expression
-            return translate_expression( property, value );
+            case 'Array': // expression
+            return translate_expression( property, value, 0 );
             
             default:
             // ToDo: emit error
@@ -590,60 +605,98 @@ function where_from_query( query, columns_aliases, parsers ) {
   
   function not_empty( v ) { return !!v }
   
-  function translate_expression( property, expression ) {
+  function translate_expression( property, expression, i ) {
     /*
-      This is work in progress, don't translate to SQL for now.
+      This is work in progress.
       
-      The containing expression will therefore return more results than needed.
+      Returns false for non-implemented operators.
       
-      Results will then be futher filtered by with the compiled query.
+      states:
+        0: initial, operand expected
+        1: list of parameters to function
+        2: operaands to operator
+      
+      example:  
+        translate_expression(
+          'location',
+          [ 'st_distance_sphere', [], [ 'point', lng, lat ], '<=', 20000 ]
+        )
+        
+        // returns: st_distance_sphere( location, point( lng, lat ) ) <= 20000 )
     */
-    return false;
+    //return false;
     
-    var i = 0, sql = '';
+    var sql = '', state = 0;
     
     while ( i < expression.length ) {
-      var first = expression[ i++ ], type = typeof first;
+      var operand = expression[ i++ ];
       
-      switch( type ) {
-        default:
-          // unknown or unsupported operator type
-        return false;
+      if ( state == 0 ) {
+        switch( class_of( operand ) ) {
+          case 'String': // this is an operator
+            switch( operand ) {
+              case 'failed':
+                // this is like the not operator but applying to previous result
+                sql = 'NOT ( ' + sql + ' )';
+              break;
+              
+              case '||':
+                sql = '( ' + sql + ') OR ';
+              break;
+              
+              case '==':
+                operand = '=';
+              // fall-through
+              case '!=':
+              case '>' :
+              case '>=':
+              case '<' :
+              case '<=':
+                sql = ( sql ? sql : property ) + ' ' + operand + ' '
+                expect = 1;
+                state = 2;
+              break;
+              
+              // 1 parameter functions
+              case 'st_geometry_from_text':
+                sql = 'st_geomfromtext( ';
+                expect = 1; // parameters
+                state = 1;
+              break;
+              
+              // 2 parameters functions
+              case 'point':
+              case 'st_distance_sphere':
+                sql = operand + '( ';
+                expect = 2; // parameters
+                state = 1;
+              break;
+              
+              default:
+                // unsuported operator
+              return false;
+            } // switch( operand )
+          break;
+        }
+      } else { // state != 0
         
-        case 'object': // this is a subexpression
-          // There is no equivalent in SQL
-          // need to abort expression generation
-        return false;
+        while( expect ) {
+          sql += is_array( operand ) ? translate_expression( property, expression, i ) : operand;
+          
+          expect -= 1;
+          
+          if ( expect ) sql += ', '
+        }
         
-        case 'string': // this is an operator
-          switch( first ) {
-            case 'failed':
-              // this is like the not operator but applying to previous result
-              sql = 'NOT ( ' + sql + ' )';
-            break;
-            
-            case '||':
-              sql = '( ' + sql + ') OR ';
-            break;
-            
-            case '==':
-              first = '=';
-            // fall-through
-            case '!=':
-            case '>' :
-            case '>=':
-            case '<' :
-            case '<=':
-              sql += '( ' + property + ' ' + first + ' '
-            break;
-            
-            default:
-              // unsuported operator
-            return false;
-          } // switch( first )
-        break;
-      } // switch( type )
-    } // while there are terms in expression
+        if ( expect == 0 ) {
+          if ( state == 1 ) sql += ' )';
+          
+          state = 0;
+        }
+      }
+    } // while there are operands in expression
+    
+    return sql ? sql : property;
   } // translate_expression()
 } // where_from_query()
 
@@ -672,10 +725,12 @@ function MySQL_Write( table, columns, connection, options ) {
   this._mysql_connection = null;
   this._waiters          = [];
   
-  var column_ids      = this._column_ids      = []
-    , aliases         = this._aliases         = []
-    , columns_aliases = this._columns_aliases = {}
-    , parsers         = this._parsers         = {}
+  var column_ids          = this._column_ids          = []
+    , aliases             = this._aliases             = []
+    , columns_geometry    = this._columns_geometry    = []
+    , properties_geometry = this._properties_geometry = {}
+    , columns_aliases     = this._columns_aliases     = {}
+    , parsers             = this._parsers             = {}
     , that = this
   ;
   
@@ -700,19 +755,29 @@ function MySQL_Write( table, columns, connection, options ) {
   // return undefined; // if called without new
   
   function add_column( column ) {
-    var as = column, id, converter;
+    var as = column, id, converter, geometry;
     
     if ( typeof column === 'object' ) {
       id = column.id;
       as = column.as || id;
       converter = column.converter;
+      geometry = column.geometry;
       column = id;
+      
+      if ( geometry && typeof( geometry ) != "string" ) {
+        geometry = "Text";
+      }
+      
+      // geometry must be one of "Text" or "GeoJSON"
       
       if ( converter ) parsers[ as ] = converters.get( converter ).parse;
     }
     
-    column_ids.push( column );
-    aliases   .push( as     );
+    properties_geometry[ column ] = geometry;
+    
+    columns_geometry.push( geometry );
+    column_ids      .push( column   );
+    aliases         .push( as       );
     
     columns_aliases[ as ] = column;
   } // add_column()
@@ -910,16 +975,18 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           Object: error
     */
     function make_bulk_insert_list( values, emit_values ) {
-      var key         = that._options.key
-        , columns     = that._aliases
-        , parsers     = that._parsers
-        , bulk_values = '\n\n  VALUES\n'
-        , vl          = values.length
-        , cl          = columns.length
+      var key              = that._options.key
+        , columns          = that._aliases
+        , parsers          = that._parsers
+        , columns_geometry = that._columns_geometry
+        , bulk_values      = '\n\n  VALUES\n'
+        , vl               = values.length
+        , cl               = columns.length
         , i
         , value
         , emit_value
         , c, v, parser
+        , geometry
         , j
       ;
       
@@ -946,7 +1013,14 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
             v = parser( v );
           }
           
-          bulk_values += ( j ? ', ' : '( ' ) + escape( v );
+          v = escape( v );
+          
+          if ( geometry = columns_geometry[ j ] ) { // "Text" or "GeoJSON"
+            // INSERT INTO geom VALUES ( ST_GeomFromText( 'POINT( 1 1 )' ) );
+            v = "ST_GeomFrom" + geometry + "( " + v + " )";
+          }
+          
+          bulk_values += ( j ? ', ' : '( ' ) + v;
         }
         
         bulk_values += ' )';
@@ -1238,9 +1312,10 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         --ul || emit(); // valid updates
       } )
       
-      function make_set_values( update ) {
-        var values  = []
-          , parsers = that._parsers
+      function make_set_values( update, i ) {
+        var values              = []
+          , parsers             = that._parsers
+          , properties_geometry = that._properties_geometry
         ;
         
         object_diff( update[ 0 ], update[ 1 ], set );
@@ -1248,11 +1323,20 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         return values;
         
         function set( property, added ) {
-          var parser = parsers[ property ];
+          var parser   = parsers            [ property ]
+            , geometry = properties_geometry[ property ]
+            , v
+          ;
           
           if ( parser ) added = parser( added );
           
-          values.push( escapeId( property ) + ' = ' + escape( added ) ) ;
+          v = escape( added );
+          
+          if ( geometry ) { // "Text" or "GeoJSON"
+            v = "ST_GeomFrom" + geometry + "( " + v + " )";
+          }
+          
+          values.push( escapeId( property ) + ' = ' + v ) ;
         }
       } // make_set_values()
     } // update()
