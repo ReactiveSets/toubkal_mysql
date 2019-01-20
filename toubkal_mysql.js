@@ -584,7 +584,7 @@ function where_from_query( query, columns_aliases, parsers ) {
             return escapeId( alias ) + ' = ' + escape( value );
             
             case 'Array': // expression
-            return translate_expression( property, value, 0 );
+            return translate_expression( escapeId( property ), value );
             
             default:
             // ToDo: emit error
@@ -609,7 +609,7 @@ function where_from_query( query, columns_aliases, parsers ) {
   
   function not_empty( v ) { return !!v }
   
-  function translate_expression( property, expression, i ) {
+  function translate_expression( property, expression ) {
     /*
       This is work in progress.
       
@@ -620,17 +620,19 @@ function where_from_query( query, columns_aliases, parsers ) {
         1: list of parameters to function
         2: operaands to operator
       
-      example:  
+      example:
         translate_expression(
-          'location',
+          escapeId( 'location' ),
           [ 'st_distance_sphere', [], [ 'point', lng, lat ], '<=', 20000 ]
         )
         
         // returns: st_distance_sphere( location, point( lng, lat ) ) <= 20000 )
     */
-    //return false;
-    
-    var sql = '', state = 0;
+    var i     = 0
+      , sql   = ''
+      , state = 0
+      , expect
+    ;
     
     while ( i < expression.length ) {
       var operand = expression[ i++ ];
@@ -656,7 +658,7 @@ function where_from_query( query, columns_aliases, parsers ) {
               case '>=':
               case '<' :
               case '<=':
-                sql = ( sql ? sql : property ) + ' ' + operand + ' '
+                sql = ( sql || property ) + ' ' + operand + ' '
                 expect = 1;
                 state = 2;
               break;
@@ -684,8 +686,11 @@ function where_from_query( query, columns_aliases, parsers ) {
         }
       } else { // state != 0
         
-        while( expect ) {
-          sql += is_array( operand ) ? translate_expression( property, expression, i ) : operand;
+        if ( expect ) {
+          sql += is_array( operand )
+            ? translate_expression( property, operand )
+            : escape( operand )
+          ;
           
           expect -= 1;
           
@@ -700,7 +705,7 @@ function where_from_query( query, columns_aliases, parsers ) {
       }
     } // while there are operands in expression
     
-    return sql ? sql : property;
+    return sql || property;
   } // translate_expression()
 } // where_from_query()
 
