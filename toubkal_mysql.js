@@ -370,7 +370,7 @@ function MySQL_Read( table, columns, connection, options ) {
         , id
         , as        = null
         , converter
-        , geometry
+        , geometry  = false
       ;
       
       if ( typeof column === 'object' && column ) {
@@ -380,8 +380,12 @@ function MySQL_Read( table, columns, connection, options ) {
         
         geometry = column.geometry;
         
-        if ( geometry && typeof( geometry ) != "string" ) {
-          geometry = "Text";
+        if ( geometry ) {
+          if ( typeof( geometry ) != "string" ) {
+            geometry = "Text";
+          }
+          
+          if ( ! as ) as = id;
         }
         
         // geometry must be one of "Text" or "GeoJSON"
