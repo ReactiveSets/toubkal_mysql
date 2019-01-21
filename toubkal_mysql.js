@@ -665,9 +665,12 @@ function where_from_query( query, columns_aliases, parsers ) {
             sql += get_parameters( 1 )[ 0 ];
           break;
           
-          // 1 parameter functions
           case 'ST_GeomFromGeoJSON': // ToDo: stringify JSON first parameter
             sql += function_call( operator, get_parameters( 1, [ JSON.stringify ] ), "" );
+          break;
+          
+          case 'ST_GeomFromText': // WKT, SRID = (default) 4326
+            sql += function_call( operator, get_parameters( 2, null, [ null, 4326 ] ) );
           break;
           
           case 'POINT': // Longitude, Latitude
@@ -693,14 +696,22 @@ function where_from_query( query, columns_aliases, parsers ) {
             }
           break;
           
-          case "MBRContains"       : // geometry_a, geometry_b = (default) property, this method can use a spatial index
-          case "MBRWithin"         : // geometry_a, geometry_b = (default) property, this method can use a spatial index
+          // Minimum Bounding Rectangle (MBR) functions, that can use spatial indexes
+          // These all take two geometry parameters. Default for the second paramenter is `property`
+          case "MBRContains"       :
+          case "MBRWithin"         :
+          case "MBRCoveredBy"      :
+          case "MBRCovers"         :
+          case "MBRDisjoint"       :
+          case "MBREquals"         :
+          case "MBRIntersects"     :
+          case "MBROverlaps"       :
+          case "MBRTouches"        :
+          // pass-through
+          
+          // other geometry comparison functions that do not use spatial indexes
           case "ST_Distance_Sphere": // geometry_a, geometry_b = (default) property
             sql += function_call( operator, get_parameters( 2, null, [ null, property ] ) );
-          break;
-          
-          case 'ST_GeomFromText': // WKT, SRID = (default) 4326
-            sql += function_call( operator, get_parameters( 2, null, [ null, 4326 ] ) );
           break;
           
           default:
