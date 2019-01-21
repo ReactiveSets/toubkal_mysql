@@ -5,6 +5,9 @@ language: node_js
 node_js:
   - "4.6.0"
 
+services:
+  - mysql
+
 before_script:
   - mysql -e 'CREATE DATABASE toubkal_unit_tests'
   - mysql toubkal_unit_tests < ./test/fixtures/test.sql
