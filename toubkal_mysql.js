@@ -675,11 +675,22 @@ function where_from_query( query, columns_aliases, parsers ) {
           break;
           
           case 'POINT_SRID': // Longitude, Latitude, SRID = (default) 4326
-            var parameters = get_parameters( 3, null, [ null, null, 4326 ] )
-              , point      = escape( function_call( "POINT", parameters.slice( 0, 2 ), " " ) )
+            var parameters = get_parameters( 3 )
+              , srid       = parameters[ 2 ]
             ;
             
-            sql += function_call( "ST_GeomFromText", [ point, parameters[ 2 ] ] );
+            parameters = parameters.slice( 0, 2 );
+            
+            if ( srid === 0 ) {
+              sql += function_call( "POINT", parameters );
+            
+            } else {
+              sql += function_call( "ST_GeomFromText", [
+                escape( function_call( "POINT", parameters, " " ) ),
+                srid || 4326
+              ] );
+            
+            }
           break;
           
           case 'ST_Distance_Sphere': // geometry_a, geometry_b = (default) property
