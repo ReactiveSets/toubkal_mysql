@@ -381,7 +381,9 @@ function MySQL_Read( table, columns, connection, options ) {
         geometry = column.geometry;
         
         if ( geometry ) {
-          if ( typeof( geometry ) != "string" ) {
+          if ( geometry == "GeoJSON" ) {
+            converter = "json";
+          } else {
             geometry = "Text";
           }
           
@@ -536,12 +538,6 @@ function MySQL_Read( table, columns, connection, options ) {
         } // while there are results
       } // while there are serializers
       
-      if ( query ) {
-        //de&&ug( name() + 'results before query filter:', results.length );
-        
-        results = new Query( query ).generate().filter( results );
-      }
-      
       //de&&ug( name() + 'results:', results.length );
       
       receiver( results, true );
@@ -584,7 +580,7 @@ function where_from_query( query, columns_aliases, parsers ) {
             return escapeId( alias ) + ' = ' + escape( value );
             
             case 'Array': // expression
-            return translate_expression( escapeId( property ), value );
+            return expression_to_sql( escapeId( property ), value );
             
             default:
             // ToDo: emit error
@@ -609,104 +605,156 @@ function where_from_query( query, columns_aliases, parsers ) {
   
   function not_empty( v ) { return !!v }
   
-  function translate_expression( property, expression ) {
+  function expression_to_sql( property, expression, i ) {
+    i = typeof i == 'number' ? i : 0;
+    
     /*
       This is work in progress.
       
-      Returns false for non-implemented operators.
-      
-      states:
-        0: initial, operand expected
-        1: list of parameters to function
-        2: operaands to operator
-      
-      example:
-        translate_expression(
-          escapeId( 'location' ),
-          [ 'st_distance_sphere', [], [ 'point', lng, lat ], '<=', 20000 ]
+      examples:
+      - expression_to_sql(
+          escapeId( 'geometry' ),
+          [ [ 'ST_Distance_Sphere', [ 'ST_GeomFromText', 'POINT( 2 48 )' ] ], '<=', 20000 ]
         )
         
-        // returns: st_distance_sphere( location, point( lng, lat ) ) <= 20000 )
+        // -> ST_Distance_Sphere( ST_GeomFromText( 'POINT( 2 48 )', 4326 ), `geometry` ) <= 200000
+      
+      - expression_to_sql(
+          escapeId( 'geometry' ),
+          [ [ 'ST_Distance_Sphere', [ 'POINT_SRID', 2, 48 ] ], '<=', 20000 ]
+        )
+        
+        // -> ST_Distance_Sphere( ST_GeomFromText( 'POINT( 2 48 )', 4326 ), `geometry` ) <= 200000
+      
+      - expression_to_sql(
+          escapeId( 'geometry' ),
+          [ 200000, '>=', [ 'ST_Distance_Sphere', [ 'ST_GeomFromGeoJSON', { type: "Point", coodinates: [ 2, 48 ] } ] ] ]
+        )
+        
+        // -> 200000 >= ST_Distance_Sphere( ST_GeomFromGeoJSON( '{\"type\":\"Point\",\"coordinates\":[2,48]}' ), `geometry` )
     */
-    var i     = 0
-      , sql   = ''
-      , state = 0
-      , expect
-    ;
+    var sql = '';
     
     while ( i < expression.length ) {
-      var operand = expression[ i++ ];
+      var operator = expression[ i++ ]
+        , class_of_operator = class_of( operator )
+      ;
       
-      if ( state == 0 ) {
-        switch( class_of( operand ) ) {
-          case 'String': // this is an operator
-            switch( operand ) {
-              case 'failed':
-                // this is like the not operator but applying to previous result
-                sql = 'NOT ( ' + sql + ' )';
-              break;
-              
-              case '||':
-                sql = '( ' + sql + ') OR ';
-              break;
-              
-              case '==':
-                operand = '=';
-              // fall-through
-              case '!=':
-              case '>' :
-              case '>=':
-              case '<' :
-              case '<=':
-                sql = ( sql || property ) + ' ' + operand + ' '
-                expect = 1;
-                state = 2;
-              break;
-              
-              // 1 parameter functions
-              case 'st_geometry_from_text':
-                sql = 'st_geomfromtext( ';
-                expect = 1; // parameters
-                state = 1;
-              break;
-              
-              // 2 parameters functions
-              case 'point':
-              case 'st_distance_sphere':
-                sql = operand + '( ';
-                expect = 2; // parameters
-                state = 1;
-              break;
-              
-              default:
-                // unsuported operator
-              return false;
-            } // switch( operand )
+      if ( class_of_operator == "String" ) {
+        switch( operator ) {
+          case 'failed':
+            // this is like the not operator but applying to previous result
+            sql = 'NOT ( ' + ( sql || property ) + ' )';
           break;
-        }
-      } else { // state != 0
-        
-        if ( expect ) {
-          sql += is_array( operand )
-            ? translate_expression( property, operand )
-            : escape( operand )
-          ;
           
-          expect -= 1;
+          case '||':
+            sql = '( ' + ( sql || property ) + ' ) OR ( ' + expression_to_sql( property, expression, i ) + ' )';
+          break;
           
-          if ( expect ) sql += ', '
-        }
-        
-        if ( expect == 0 ) {
-          if ( state == 1 ) sql += ' )';
+          case '==':
+            operator = '=';
+          // fall-through
+          case '!=':
+          case '>' :
+          case '>=':
+          case '<' :
+          case '<=':
+            sql = ( sql || property ) + ' ' + operator + ' '
+          // fall-through
+          case '$':
+            sql += get_parameters( 1 )[ 0 ];
+          break;
           
-          state = 0;
-        }
+          // 1 parameter functions
+          case 'ST_GeomFromGeoJSON': // ToDo: stringify JSON first parameter
+            sql += function_call( operator, get_parameters( 1, [ JSON.stringify ] ), "" );
+          break;
+          
+          case 'POINT': // Longitude, Latitude
+            sql += function_call( operator, get_parameters( 2 ) );
+          break;
+          
+          case 'POINT_SRID': // Longitude, Latitude, SRID = (default) 4326
+            var parameters = get_parameters( 3, null, [ null, null, 4326 ] )
+              , point      = escape( function_call( "POINT", parameters.slice( 0, 2 ), " " ) )
+            ;
+            
+            sql += function_call( "ST_GeomFromText", [ point, parameters[ 2 ] ] );
+          break;
+          
+          case 'ST_Distance_Sphere': // geometry_a, geometry_b = (default) property
+            sql += function_call( operator, get_parameters( 2, null, [ null, property ] ) );
+          break;
+          
+          case 'ST_GeomFromText': // WKT, SRID = (default) 4326
+            sql += function_call( operator, get_parameters( 2, null, [ null, 4326 ] ) );
+          break;
+          
+          default:
+            // unsuported operator
+            error( 'unsupported operator: ' + operator );
+          return false;
+        } // switch( operator )
+      
+      } else if ( class_of_operator == 'Array' ) {
+        sql += expression_to_sql( property, operator );
+      
+      } else {
+        error( 'operator is a ' + class_of_operator + ', expected a String' );
       }
-    } // while there are operands in expression
+    } // while there are operators in expression
+    
+    // In state 1, close parenthesis when number of arguments is incomplete
+    // if ( expect && state == 1 ) sql += ends_with;
     
     return sql || property;
-  } // translate_expression()
+    
+    function function_call( name, parameters, separator ) {
+      return name + "( " + parameters.join( separator || ", " ) + " )";
+    } // function_call()
+    
+    function get_parameters( count, converters, defaults ) {
+      var parameters = []
+        , j          = -1
+      ;
+      
+      while ( count-- ) {
+        ++j;
+        
+        if ( i < expression.length ) {
+          var parameter   = expression[ i++ ]
+            , sub_expression = is_array( parameter )
+            , converter = converters && converters[ j ]
+          ;
+          
+          if ( sub_expression ) {
+            parameter = expression_to_sql( property, parameter );
+          }
+          
+          if ( converter ) {
+            parameter = converter( parameter );
+          }
+          
+          if ( ! sub_expression ) {
+            parameter = escape( parameter );
+          }
+        
+        } else if ( defaults && ( parameter = defaults[ j ] ) !== undefined ) {
+        } else {
+          // no more parameters or default parameters
+          break;
+        }
+        
+        parameters.push( parameter );
+      } // while ( count-- )
+      
+      return parameters;
+    } // get_parameters()
+    
+    function error( message ) {
+      log( 'error,', message + ', at position', i, 'in expression:', expression );
+    }
+  } // expression_to_sql()
 } // where_from_query()
 
 Greedy.Build( 'mysql_read', MySQL_Read );
@@ -773,8 +821,13 @@ function MySQL_Write( table, columns, connection, options ) {
       geometry = column.geometry;
       column = id;
       
-      if ( geometry && typeof( geometry ) != "string" ) {
-        geometry = "Text";
+      if ( geometry ) {
+        if ( geometry == "GeoJSON" ) {
+          converter = "json";
+        } else {
+          // force geometry to Text if not GeoJSON
+          geometry = "Text";
+        }
       }
       
       // geometry must be one of "Text" or "GeoJSON"
@@ -1025,8 +1078,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           v = escape( v );
           
           if ( geometry = columns_geometry[ j ] ) { // "Text" or "GeoJSON"
-            // INSERT INTO geom VALUES ( ST_GeomFromText( 'POINT( 1 1 )' ) );
-            v = "ST_GeomFrom" + geometry + "( " + v + " )";
+            // INSERT INTO geometries VALUES ( ST_GeomFromText( 'POINT( 1 1 )', 4326 ) );
+            v = "ST_GeomFrom" + geometry + "( " + v + ( geometry == "Text" ? ", 4326" : "" ) + " )";
           }
           
           bulk_values += ( j ? ', ' : '( ' ) + v;

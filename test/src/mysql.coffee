@@ -120,7 +120,7 @@ describe 'mysql()', ->
     it 'should ignore column in query not defined in schema', ( done ) ->
       fetched = ( _users ) ->
         check done, () ->
-          expect( _users.length ).to.be.eql 0
+          expect( _users.length ).to.be.eql 1
       
       mysql_users._fetch_all fetched, [ { _login: 'joe' } ]
     
@@ -300,3 +300,379 @@ describe 'mysql()', ->
         .emit_operations()
         
         .database()
+  
+  describe 'Using spatial geometry fields, WKT geometry', ->
+    paris = null
+    cities_wkt_output = null
+    
+    it 'should allow to add Paris in cities_wkt', ( done ) ->
+      cities_wkt_output = rs
+        .Singleton( 'cities_wkt', ( source, options ) ->
+          return source
+            
+            .flow( 'cities_wkt' )
+            
+            .mysql(
+              'toubkal_unit_tests.cities'
+              
+              [
+                { id: 'id', converter: 'uuid_b16' }
+                'name'
+                { id: 'geometry', geometry: 'WKT' }
+                'create_time'
+              ]
+              
+              {
+                configuration:
+                  if process.env.TRAVIS
+                  then './test/fixtures/travis.config.json'
+                  else null
+              }
+            )
+            
+            .set_flow( 'cities_wkt' )
+        )
+        
+        .cities_wkt()
+        
+        .greedy()
+        
+        ._output
+      ;
+      
+      cities_wkt_output.once( "add", ( values ) -> check done, () ->
+        expect( values.length ).to.be 1
+        
+        value = values[ 0 ]
+        
+        expect( value ).to.be.eql paris
+      )
+      
+      rs
+        .once()
+        
+        .map( ( _ ) -> paris = {
+          flow: "cities_wkt"
+          id: uuid_v4()
+          name: "Paris"
+          geometry: "POINT( 2.349014 48.864716 )"
+          create_time: new Date()
+        } )
+        
+        .cities_wkt()
+      ;
+    
+    it "should allow to fetch a city using ST_Distance_Sphere() and 'POINT_SRID', 2, 48", ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_wkt(), () ->
+          [ { geometry: [
+            'ST_Distance_Sphere', [], [
+              'POINT_SRID', 2, 48
+            ], '<=', 200000
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            'POINT(2.349014 48.864716)'
+          )
+        )
+      ;
+    
+    it "should allow to fetch a city using ST_Distance_Sphere() and ST_GeomFromText, 'POINT( 2 48 )', 4326", ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_wkt(), () ->
+          [ { geometry: [
+            [ 'ST_Distance_Sphere', [
+              'ST_GeomFromText', 'POINT( 2 48 )', 4326
+            ] ], '<=', 200000
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            'POINT(2.349014 48.864716)'
+          )
+        )
+      ;
+    
+    it "should allow to fetch a city using ST_Distance_Sphere() and ST_GeomFromText, 'POINT( 2 48 )' with default 4326 SRID", ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_wkt(), () ->
+          [ { geometry: [
+            'ST_Distance_Sphere', [
+              'ST_GeomFromText', 'POINT( 2 48 )'
+            ], [], '<=', 200000
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            'POINT(2.349014 48.864716)'
+          )
+        )
+      ;
+    
+    it 'should allow to fetch a city using ST_Distance_Sphere() and ST_GeomFromGeoJSON()', ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_wkt(), () ->
+          [ { geometry: [ "$", 200000, ">=",
+            [ 'ST_Distance_Sphere', [
+              'ST_GeomFromGeoJSON', { type: "Point", coordinates: [ 2, 48 ] }
+            ] ]
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            'POINT(2.349014 48.864716)'
+          )
+        )
+      ;
+    
+    it 'should  fetch no city if distance is too small using ST_Distance_Sphere() and ST_GeomFromGeoJSON()', ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_wkt(), () ->
+          [ { geometry: [ "$", 20000, ">=",
+            [ 'ST_Distance_Sphere', [
+              'ST_GeomFromGeoJSON', { type: "Point", coordinates: [ 2, 48 ] }
+            ] ]
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          
+          expect( fetched_values.length ).to.be 0
+        )
+      ;
+    
+    it 'should allow to remove the city of Paris', ( done ) ->
+      cities_wkt_output.once( "remove", ( values ) -> check done, () ->
+        expect( values.length ).to.be 1
+        expect( values[ 0 ] ).to.be.eql paris
+      )
+      
+      rs
+        .once()
+        
+        .map ( _ ) -> paris
+        
+        .revert()
+        
+        .cities_wkt()
+      ;
+  
+  describe 'Using spatial geometry fields, GeoJSON geometry', ->
+    paris = null
+    cities_geo_json_output = null
+    
+    it 'should allow to add Paris in cities_geo_json', ( done ) ->
+      cities_geo_json_output = rs
+        .Singleton( 'cities_geo_json', ( source, options ) ->
+          return source
+            
+            .flow( 'cities_geo_json' )
+            
+            .mysql(
+              'toubkal_unit_tests.cities'
+              
+              [
+                { id: 'id', converter: 'uuid_b16' }
+                'name'
+                { id: 'geometry', geometry: 'GeoJSON' }
+                'create_time'
+              ]
+              
+              {
+                configuration:
+                  if process.env.TRAVIS
+                  then './test/fixtures/travis.config.json'
+                  else null
+              }
+            )
+            
+            .set_flow( 'cities_geo_json' )
+        )
+        
+        .cities_geo_json()
+        
+        .greedy()
+        
+        ._output
+      ;
+      
+      cities_geo_json_output.once( "add", ( values ) -> check done, () ->
+        expect( values.length ).to.be 1
+        
+        value = values[ 0 ]
+        
+        expect( value ).to.be.eql paris
+      )
+      
+      rs
+        .once()
+        
+        .map( ( _ ) -> paris = {
+          flow: "cities_geo_json"
+          id: uuid_v4()
+          name: "Paris"
+          geometry: { type: 'Point', coordinates: [ 2.349014, 48.864716 ] }
+          create_time: new Date()
+        } )
+        
+        .cities_geo_json()
+      ;
+    
+    it "should allow to fetch a city using ST_Distance_Sphere() and 'POINT_SRID', 2, 48", ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_geo_json(), () ->
+          [ { geometry: [
+            'ST_Distance_Sphere', [], [
+              'POINT_SRID', 2, 48
+            ], '<=', 200000
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            { type: 'Point', coordinates: [ 2.349014, 48.864716 ] }
+          )
+        )
+      ;
+    
+    it "should allow to fetch a city using ST_Distance_Sphere() and ST_GeomFromText, 'POINT( 2 48 )', 4326", ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_geo_json(), () ->
+          [ { geometry: [
+            [ 'ST_Distance_Sphere', [
+              'ST_GeomFromText', 'POINT( 2 48 )', 4326
+            ] ], '<=', 200000
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            { type: 'Point', coordinates: [ 2.349014, 48.864716 ] }
+          )
+        )
+      ;
+    
+    it "should allow to fetch a city using ST_Distance_Sphere() and ST_GeomFromText, 'POINT( 2 48 )' with default 4326 SRID", ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_geo_json(), () ->
+          [ { geometry: [
+            'ST_Distance_Sphere', [
+              'ST_GeomFromText', 'POINT( 2 48 )'
+            ], [], '<=', 200000
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            { type: 'Point', coordinates: [ 2.349014, 48.864716 ] }
+          )
+        )
+      ;
+    
+    it 'should allow to fetch a city using ST_Distance_Sphere() and ST_GeomFromGeoJSON()', ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_geo_json(), () ->
+          [ { geometry: [ "$", 200000, ">=",
+            [ 'ST_Distance_Sphere', [
+              'ST_GeomFromGeoJSON', { type: "Point", coordinates: [ 2, 48 ] }
+            ] ]
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          fetched_value  = fetched_values[ 0 ]
+          
+          expect( fetched_values.length ).to.be 1
+          expect( fetched_value.geometry ).to.be.eql(
+            { type: 'Point', coordinates: [ 2.349014, 48.864716 ] }
+          )
+        )
+      ;
+    
+    it 'should  fetch no city if distance is too small using ST_Distance_Sphere() and ST_GeomFromGeoJSON()', ( done ) ->
+      rs
+        .once()
+        
+        .fetch( rs.cities_wkt(), () ->
+          [ { geometry: [ "$", 20000, ">=",
+            [ 'ST_Distance_Sphere', [
+              'ST_GeomFromGeoJSON', { type: "Point", coordinates: [ 2, 48 ] }
+            ] ]
+          ] } ]
+        )
+        
+        ._output.once( "add", ( values ) -> check done, () ->
+          fetched_values = values[ 0 ].values
+          
+          expect( fetched_values.length ).to.be 0
+        )
+      ;
+    
+    it 'should allow to remove the city of Paris', ( done ) ->
+      cities_geo_json_output.once( "remove", ( values ) -> check done, () ->
+        expect( values.length ).to.be 1
+        expect( values[ 0 ] ).to.be.eql paris
+      )
+      
+      rs
+        .once()
+        
+        .map ( _ ) -> paris
+        
+        .revert()
+        
+        .cities_geo_json()
+      ;

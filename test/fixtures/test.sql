@@ -16,6 +16,23 @@
 /*!40111 SET @OLD_SQL_NOTES=@@SQL_NOTES, SQL_NOTES=0 */;
 
 --
+-- Table structure for table `cities`
+--
+
+DROP TABLE IF EXISTS `cities`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8 */;
+CREATE TABLE `cities` (
+  `id` binary(16) NOT NULL COMMENT 'uuid',
+  `name` varchar(128) NOT NULL,
+  `geometry` geometry NOT NULL,
+  `create_time` varchar(128) NOT NULL COMMENT 'timestamp with milliseconds',
+  PRIMARY KEY (`id`),
+  SPATIAL KEY `geometry` (`geometry`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Table structure for table `project`
 --
 
