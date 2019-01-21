@@ -693,7 +693,9 @@ function where_from_query( query, columns_aliases, parsers ) {
             }
           break;
           
-          case 'ST_Distance_Sphere': // geometry_a, geometry_b = (default) property
+          case "MBRContains"       : // geometry_a, geometry_b = (default) property, this method can use a spatial index
+          case "MBRWithin"         : // geometry_a, geometry_b = (default) property, this method can use a spatial index
+          case "ST_Distance_Sphere": // geometry_a, geometry_b = (default) property
             sql += function_call( operator, get_parameters( 2, null, [ null, property ] ) );
           break;
           
