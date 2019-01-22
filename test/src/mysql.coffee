@@ -362,14 +362,14 @@ describe 'mysql()', ->
         .cities_wkt()
       ;
     
-    it "should allow to fetch a city using ST_Distance_Sphere() and 'POINT_SRID', 2, 48", ( done ) ->
+    it "should allow to fetch a city using ST_Distance_Sphere() and 'ST_GeomFromPoint', 2, 48", ( done ) ->
       rs
         .once()
         
         .fetch( rs.cities_wkt(), () ->
           [ { geometry: [
             'ST_Distance_Sphere', [], [
-              'POINT_SRID', 2, 48
+              'ST_GeomFromPoint', 2, 48
             ], '<=', 200000
           ] } ]
         )
@@ -550,14 +550,14 @@ describe 'mysql()', ->
         .cities_geo_json()
       ;
     
-    it "should allow to fetch a city using ST_Distance_Sphere() and 'POINT_SRID', 2, 48", ( done ) ->
+    it "should allow to fetch a city using ST_Distance_Sphere() and 'ST_GeomFromPoint', 2, 48", ( done ) ->
       rs
         .once()
         
         .fetch( rs.cities_geo_json(), () ->
           [ { geometry: [
             'ST_Distance_Sphere', [], [
-              'POINT_SRID', 2, 48
+              'ST_GeomFromPoint', 2, 48
             ], '<=', 200000
           ] } ]
         )

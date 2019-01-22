@@ -665,35 +665,32 @@ function where_from_query( query, columns_aliases, parsers ) {
             sql += get_parameters( 1 )[ 0 ];
           break;
           
-          case 'ST_GeomFromGeoJSON': // ToDo: stringify JSON first parameter
-            sql += function_call( operator, get_parameters( 1, [ JSON.stringify ] ), "" );
+          case 'ST_GeomFromGeoJSON':
+            sql += sql_function( operator, get_parameters( 1, [ JSON.stringify ] ) );
           break;
           
-          case 'ST_GeomFromText': // WKT, SRID = (default) 4326
-            sql += function_call( operator, get_parameters( 2, null, [ null, 4326 ] ) );
+          case "ST_PointFromText": // WKT [, SRID = (default) 4326]
+          case "ST_GeomFromText" : // WKT [, SRID = (default) 4326]
+            sql += sql_function( operator, get_parameters( 2, null, [ null, 4326 ] ) );
           break;
           
           case 'POINT': // Longitude, Latitude
-            sql += function_call( operator, get_parameters( 2 ) );
+            sql += sql_function( operator, get_parameters( 2 ) );
           break;
           
-          case 'POINT_SRID': // Longitude, Latitude, SRID = (default) 4326
+          case 'ST_GeomFromPoint': // Longitude, Latitude [, SRID = (default) 4326]
             var parameters = get_parameters( 3 )
+              , lon_lat    = parameters.slice( 0, 2 )
               , srid       = parameters[ 2 ]
             ;
             
-            parameters = parameters.slice( 0, 2 );
-            
-            if ( srid === 0 ) {
-              sql += function_call( "POINT", parameters );
-            
-            } else {
-              sql += function_call( "ST_GeomFromText", [
-                escape( function_call( "POINT", parameters, " " ) ),
-                srid || 4326
-              ] );
-            
+            if ( typeof srid != "number" ) {
+              srid = 4326;
             }
+            
+            sql += sql_function( "ST_GeomFromText",
+              [ wkt_function( "POINT", lon_lat ), srid ]
+            );
           break;
           
           // Minimum Bounding Rectangle (MBR) functions, that can use spatial indexes
@@ -710,8 +707,8 @@ function where_from_query( query, columns_aliases, parsers ) {
           // pass-through
           
           // other geometry comparison functions that do not use spatial indexes
-          case "ST_Distance_Sphere": // geometry_a, geometry_b = (default) property
-            sql += function_call( operator, get_parameters( 2, null, [ null, property ] ) );
+          case "ST_Distance_Sphere": // geometry_a [, geometry_b = (default) property]
+            sql += sql_function( operator, get_parameters( 2, null, [ null, property ] ) );
           break;
           
           default:
@@ -733,9 +730,13 @@ function where_from_query( query, columns_aliases, parsers ) {
     
     return sql || property;
     
-    function function_call( name, parameters, separator ) {
-      return name + "( " + parameters.join( separator || ", " ) + " )";
-    } // function_call()
+    function wkt_function( name, parameters ) {
+      return escape( name + "( " + parameters.join( " " ) + " )" );
+    } // wkt_function()
+    
+    function sql_function( name, parameters ) {
+      return name + "( " + parameters.join( ", " ) + " )";
+    } // sql_function()
     
     function get_parameters( count, converters, defaults ) {
       var parameters = []
