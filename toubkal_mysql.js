@@ -297,7 +297,7 @@ converters.set( 'json', {
       //de&&ug( 'converter.json serialize, JSON.parse():', json );
       
     } catch( e ) {
-      // ToDo: emit out-of-band error
+      // ToDo: emit error
       log( 'JSON.parse error:', e );
       
       json = null;
@@ -306,6 +306,31 @@ converters.set( 'json', {
     return json;
   }
 } ); // json
+
+converters.set( 'geo_json', extend( {}, converters.get( 'json' ), {
+  select: function( column, as ) {
+    return "ST_AsGeoJSON( " + column + " ) AS " + ( as || column );
+  },
+  
+  // sql expression to write column to mysql
+  write: function( value ) {
+    // srid is 4326 by default
+    return "ST_GeomFromGeoJSON( " + value + " )";
+  }
+} ) );
+
+converters.set( 'wkt', {
+  // sql expression to read column from mysql
+  select: function( column, as ) {
+    return "ST_AsText( " + column + " ) AS " + ( as || column );
+  },
+  
+  // sql expression to write column to mysql
+  write: function( value ) {
+    // force srid to 4326, because default is zero
+    return "ST_GeomFromText( " + value + ", 4326 )";
+  }
+} );
 
 /* ----------------------------------------------------------------------------
     @pipelet mysql_read( table, columns, connection, options )
@@ -369,8 +394,8 @@ function MySQL_Read( table, columns, connection, options ) {
         , a         = column
         , id
         , as        = null
-        , converter
-        , geometry  = false
+        , converter = null
+        , select    = null
       ;
       
       if ( typeof column === 'object' && column ) {
@@ -378,28 +403,23 @@ function MySQL_Read( table, columns, connection, options ) {
         as = column.as;
         converter = column.converter;
         
-        geometry = column.geometry;
-        
-        if ( geometry ) {
-          if ( geometry == "GeoJSON" ) {
-            converter = "json";
-          } else {
-            geometry = "Text";
-          }
-          
-          if ( ! as ) as = id;
-        }
-        
-        // geometry must be one of "Text" or "GeoJSON"
-        
         column = id;
         a = as || id;
         
         if ( converter ) {
           converter = converters.get( converter );
           
-          parsers[ a ] = converter.parse;
-          serializers.push( { id: a, serialize: converter.serialize } );
+          if ( converter ) {
+            if ( converter.parse ) {
+              parsers[ a ] = converter.parse;
+            }
+            
+            if ( converter.serialize ) {
+              serializers.push( { id: a, serialize: converter.serialize } );
+            }
+            
+            select = converter.select;
+          }
         }
       }
       
@@ -414,14 +434,19 @@ function MySQL_Read( table, columns, connection, options ) {
       
       columns_aliases[ a ] = column;
       
+      // Escape column and as names
       column = escapeId( column );
       
-      if ( geometry ) {
-        column = "ST_As" + geometry + "( " + column + " )";
+      if ( as ) {
+        as = escapeId( as );
       }
       
-      if ( as ) {
-        column += ' AS ' + escapeId( as );
+      if ( select ) {
+        column = select( column, as );
+      
+      } else if ( as ) {
+        column += ' AS ' + as;
+      
       }
       
       processed_columns.push( column );
@@ -809,8 +834,8 @@ function MySQL_Write( table, columns, connection, options ) {
   
   var column_ids          = this._column_ids          = []
     , aliases             = this._aliases             = []
-    , columns_geometry    = this._columns_geometry    = []
-    , properties_geometry = this._properties_geometry = {}
+    , columns_write       = this._columns_write       = []
+    , properties_write    = this._properties_write    = {}
     , columns_aliases     = this._columns_aliases     = {}
     , parsers             = this._parsers             = {}
     , that = this
@@ -837,32 +862,36 @@ function MySQL_Write( table, columns, connection, options ) {
   // return undefined; // if called without new
   
   function add_column( column ) {
-    var as = column, id, converter, geometry;
+    var as        = column
+      , id
+      , converter
+      , write
+    ;
     
     if ( typeof column === 'object' ) {
       id = column.id;
       as = column.as || id;
       converter = column.converter;
-      geometry = column.geometry;
       column = id;
       
-      if ( geometry ) {
-        if ( geometry == "GeoJSON" ) {
-          converter = "json";
-        } else {
-          // force geometry to Text if not GeoJSON
-          geometry = "Text";
+      if ( converter ) {
+        converter = converters.get( converter );
+        
+        if ( converter ) {
+          if ( converter.parse ) {
+            parsers[ as ] = converter.parse;
+          }
+          
+          write = converter.write;
+          
+          if ( write ) {
+            properties_write[ column ] = write;
+          }
         }
       }
-      
-      // geometry must be one of "Text" or "GeoJSON"
-      
-      if ( converter ) parsers[ as ] = converters.get( converter ).parse;
     }
     
-    properties_geometry[ column ] = geometry;
-    
-    columns_geometry.push( geometry );
+    columns_write   .push( write    );
     column_ids      .push( column   );
     aliases         .push( as       );
     
@@ -1065,7 +1094,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       var key              = that._options.key
         , columns          = that._aliases
         , parsers          = that._parsers
-        , columns_geometry = that._columns_geometry
+        , columns_write    = that._columns_write
         , bulk_values      = '\n\n  VALUES\n'
         , vl               = values.length
         , cl               = columns.length
@@ -1073,7 +1102,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         , value
         , emit_value
         , c, v, parser
-        , geometry
+        , write
         , j
       ;
       
@@ -1102,9 +1131,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           
           v = escape( v );
           
-          if ( geometry = columns_geometry[ j ] ) { // "Text" or "GeoJSON"
-            // INSERT INTO geometries VALUES ( ST_GeomFromText( 'POINT( 1 1 )', 4326 ) );
-            v = "ST_GeomFrom" + geometry + "( " + v + ( geometry == "Text" ? ", 4326" : "" ) + " )";
+          if ( write = columns_write[ j ] ) {
+            v = write( v );
           }
           
           bulk_values += ( j ? ', ' : '( ' ) + v;
@@ -1402,7 +1430,7 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
       function make_set_values( update, i ) {
         var values              = []
           , parsers             = that._parsers
-          , properties_geometry = that._properties_geometry
+          , properties_write    = that._properties_write
         ;
         
         object_diff( update[ 0 ], update[ 1 ], set );
@@ -1410,8 +1438,8 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
         return values;
         
         function set( property, added ) {
-          var parser   = parsers            [ property ]
-            , geometry = properties_geometry[ property ]
+          var parser   = parsers         [ property ]
+            , write    = properties_write[ property ]
             , v
           ;
           
@@ -1419,11 +1447,11 @@ Greedy.Build( 'mysql_write', MySQL_Write, function( Super ) { return {
           
           v = escape( added );
           
-          if ( geometry ) { // "Text" or "GeoJSON"
-            v = "ST_GeomFrom" + geometry + "( " + v + " )";
+          if ( write ) {
+            v = write( v );
           }
           
-          values.push( escapeId( property ) + ' = ' + v ) ;
+          values.push( escapeId( property ) + ' = ' + v );
         }
       } // make_set_values()
     } // update()

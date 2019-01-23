@@ -318,7 +318,7 @@ describe 'mysql()', ->
               [
                 { id: 'id', converter: 'uuid_b16' }
                 'name'
-                { id: 'geometry', geometry: 'WKT' }
+                { id: 'geometry', converter: 'wkt' }
                 'create_time'
               ]
               
@@ -506,7 +506,7 @@ describe 'mysql()', ->
               [
                 { id: 'id', converter: 'uuid_b16' }
                 'name'
-                { id: 'geometry', geometry: 'GeoJSON' }
+                { id: 'geometry', converter: 'geo_json' }
                 'create_time'
               ]
               
