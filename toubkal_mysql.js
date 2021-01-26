@@ -232,7 +232,7 @@ Unique.Build( 'mysql_connections_set', MySQL_Connections_Set, function( Super ) 
 
 rs.Singleton( 'mysql_connections', function( source, options ) {
   return source
-    .optimize( { tag: 'mysql_configuration' } )
+    .optimize( { untag: 'mysql_configuration' } )
     .last()
     .mysql_connections_set( options )
   ;
@@ -1573,7 +1573,7 @@ rs.Multiton( 'mysql_configuration',
         there may be multiple concurrent inputs to mysql_connections() that
         therefore need to be synchronized.
       */
-      .pass_through( { fork_tag: 'mysql_configuration'  } )
+      //.pass_through( { fork_tag: 'mysql_configuration'  } )
       
       .filter( connection_terms )
       
